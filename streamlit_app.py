@@ -32,17 +32,31 @@ st.markdown(
     """
     <style>
     .stApp {
-        background: linear-gradient(180deg, #f4fbff 0%, #eef7fb 100%);
+        background: linear-gradient(180deg, #03131c 0%, #062433 100%);
     }
-    h1, h2, h3 {
-        color: #0f4c5c !important;
+    .stApp, .stApp p, .stApp span, .stApp label, .stApp li, .stApp h1, .stApp h2, .stApp h3 {
+        color: #9fe9ff !important;
         letter-spacing: 0.2px;
     }
+    .stMarkdown, .stCaption {
+        color: #9fe9ff !important;
+    }
+    [data-testid="stSidebar"] * {
+        color: #9fe9ff !important;
+    }
     div[data-testid="stMetric"] {
-        background: #ffffff;
-        border: 1px solid #d5e7ef;
+        background: rgba(10, 33, 46, 0.85);
+        border: 1px solid #2b6d84;
         border-radius: 12px;
         padding: 10px 14px;
+    }
+    [data-baseweb="select"] > div,
+    .stTextInput > div > div > input,
+    .stTextArea textarea,
+    .stNumberInput input {
+        background: rgba(6, 27, 39, 0.95) !important;
+        color: #b6f0ff !important;
+        border-color: #2b6d84 !important;
     }
     .stButton > button {
         background: #0f766e;
