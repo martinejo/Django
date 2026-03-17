@@ -3,7 +3,8 @@
 import ast
 from pathlib import Path
 
-import altair as alt
+import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -222,6 +223,20 @@ detection_threshold = st.number_input(
     value=0.35,
     step=0.05,
 )
+alarm_min_consecutive = st.number_input(
+    "alarmas_consecutivas_min",
+    min_value=1,
+    max_value=10,
+    value=2,
+    step=1,
+)
+alarm_refractory = st.number_input(
+    "refractory_segundos",
+    min_value=0,
+    max_value=120,
+    value=10,
+    step=1,
+)
 
 model_key = st.selectbox(
     "Modelo",
@@ -255,6 +270,8 @@ if st.button("Entrenar"):
                 window_size=int(window_size),
                 prediction_horizon=int(prediction_horizon),
                 detection_threshold=float(detection_threshold),
+                alarm_min_consecutive=int(alarm_min_consecutive),
+                alarm_refractory=int(alarm_refractory),
             )
         except Exception as exc:
             st.error(f"Error durante entrenamiento: {exc}")
@@ -272,164 +289,120 @@ if train_result is not None:
     st.text("Classification report")
     st.code(train_result["report"])
 
-    event_cases = train_result.get("event_case_summaries", [])
-    if event_cases:
-        st.subheader("Casos de test con evento")
+    test_cases = train_result.get("test_patient_summaries", [])
+    test_payloads = train_result.get("test_patient_payloads", {})
+    if test_cases:
+        st.subheader("Análisis final (solo pacientes del set test)")
         selected_case = st.selectbox(
-            "Selecciona un caso para analizar antelación",
-            options=event_cases,
+            "Paciente (test set)",
+            options=test_cases,
             format_func=lambda case: (
                 f"Paciente {case['patient_id']} | "
-                f"evento={case['event_time']}s | "
+                f"{'con evento' if case['has_event'] else 'sin evento'} | "
                 + (
-                    f"detención={case['first_detection_time']}s | "
-                    f"antelación={case['lead_time_seconds']}s"
+                    f"lead={case['lead_time_seconds']}s"
                     if case["lead_time_seconds"] is not None
                     else "sin detección previa"
                 )
             ),
         )
 
-        st.write(
-            "Resumen:",
-            {
-                "patient_id": selected_case["patient_id"],
-                "event_time_s": selected_case["event_time"],
-                "first_detection_time_s": selected_case["first_detection_time"],
-                "lead_time_s": selected_case["lead_time_seconds"],
-            },
-        )
-
         selected_patient = selected_case["patient_id"]
-        patient_case_df = data[data["patient_id"].astype(str) == str(selected_patient)].sort_values(
-            time_column
-        )
+        payload = test_payloads.get(str(selected_patient), {})
+        pred_times = np.asarray(payload.get("pred_times", []), dtype=float)
+        pred_proba = np.asarray(payload.get("pred_proba", []), dtype=float)
+        alarm_times = np.asarray(payload.get("alarm_times", []), dtype=float)
+        ev_start_t = payload.get("event_start_time")
+        ev_end_t = payload.get("event_end_time")
+
+        patient_df = data[data["patient_id"].astype(str) == str(selected_patient)].sort_values(time_column)
         signal_cols = [
             col
-            for col in patient_case_df.columns
-            if col not in {"patient_id", time_column, target_col}
-            and pd.api.types.is_numeric_dtype(patient_case_df[col])
+            for col in ["HR", "SpO2", "MAP", "EtCO2"]
+            if col in patient_df.columns
         ]
-        if signal_cols:
-            event_time = int(selected_case["event_time"])
-            start_t = event_time - 120
-            end_t = event_time + 60
-            patient_case_window = patient_case_df[
-                (patient_case_df[time_column] >= start_t) & (patient_case_df[time_column] <= end_t)
-            ]
-            signal_long = patient_case_window[[time_column] + signal_cols].melt(
-                id_vars=[time_column], var_name="signal", value_name="value"
-            )
 
-            bands = []
-            detection_time = selected_case["first_detection_time"]
-            if detection_time is not None:
-                win_size = int(train_result.get("window_size", int(window_size)))
-                detection_start = max(start_t, int(detection_time) - win_size + 1)
-                detection_end = min(end_t, int(detection_time))
-                if detection_start <= detection_end:
-                    bands.append(
-                        {
-                            "x_start": detection_start,
-                            "x_end": detection_end,
-                            "label": "Ventana detectada",
-                            "color": "#6aa7ff",
-                            "opacity": 0.18,
-                        }
-                    )
-            bands.append(
-                {
-                    "x_start": max(start_t, event_time - 0.5),
-                    "x_end": min(end_t, event_time + 0.5),
-                    "label": "Evento",
-                    "color": "#2563eb",
-                    "opacity": 0.38,
-                }
-            )
+        if len(pred_times) > 0 and len(signal_cols) > 0:
+            use_minutes = True
+            if use_minutes:
+                x_pred = pred_times / 60.0
+                x_alarm = alarm_times / 60.0 if len(alarm_times) else np.array([])
+                xx = patient_df[time_column].to_numpy(dtype=float) / 60.0
+                xlabel = "Tiempo (minutos)"
+                ev_start_x = None if ev_start_t is None else ev_start_t / 60.0
+                ev_end_x = None if ev_end_t is None else ev_end_t / 60.0
+                margin_before = 180 / 60.0
+                margin_after = 180 / 60.0
+            else:
+                x_pred = pred_times
+                x_alarm = alarm_times if len(alarm_times) else np.array([])
+                xx = patient_df[time_column].to_numpy(dtype=float)
+                xlabel = "Tiempo (segundos)"
+                ev_start_x = ev_start_t
+                ev_end_x = ev_end_t
+                margin_before = 180
+                margin_after = 180
 
-            base = alt.Chart(signal_long).encode(
-                x=alt.X(f"{time_column}:Q", title="Tiempo (s)"),
-                y=alt.Y("value:Q", title="Valor señal"),
-                color=alt.Color("signal:N", title="Señal"),
-            )
-            line_layer = base.mark_line(strokeWidth=2)
+            if ev_start_x is not None:
+                x_min = max(float(np.min(x_pred)), ev_start_x - margin_before)
+                x_max = min(float(np.max(x_pred)), ev_end_x + margin_after)
+            else:
+                x_min = float(np.min(x_pred))
+                x_max = float(np.max(x_pred))
 
-            chart = line_layer
-            if bands:
-                band_df = pd.DataFrame(bands)
-                band_layer = alt.Chart(band_df).mark_rect().encode(
-                    x="x_start:Q",
-                    x2="x_end:Q",
-                    color=alt.Color(
-                        "label:N",
-                        scale=alt.Scale(
-                            domain=["Ventana detectada", "Evento"],
-                            range=["#6aa7ff", "#2563eb"],
-                        ),
-                        legend=alt.Legend(title="Sombras"),
-                    ),
-                    opacity=alt.Opacity("opacity:Q", legend=None),
-                )
-                chart = band_layer + line_layer
+            threshold = float(train_result.get("detection_threshold", detection_threshold))
+            fig = plt.figure(figsize=(12, 7))
 
-            st.altair_chart(chart.properties(height=460), use_container_width=True)
+            ax1 = fig.add_axes([0.08, 0.56, 0.88, 0.36])
+            ax1.plot(x_pred, pred_proba, color="tab:blue", linewidth=2, marker="x", label="P(evento en horizonte)")
+            ax1.fill_between(x_pred, pred_proba, alpha=0.2, color="tab:blue")
+            ax1.axhline(
+                threshold,
+                linestyle="--",
+                linewidth=2,
+                color="tab:orange",
+                label=f"Threshold={threshold:.2f}",
+            )
+            if ev_start_x is not None:
+                ax1.axvspan(ev_start_x, ev_end_x, alpha=0.15, color="tab:red", label="Evento real")
+            if len(x_alarm):
+                ax1.scatter(x_alarm, np.full_like(x_alarm, threshold), marker="^", s=80, color="tab:green", label="Alarma")
+                for xa in x_alarm:
+                    ax1.axvline(xa, alpha=0.15, color="tab:green", linewidth=2)
+            ax1.set_title("Streaming: probabilidad y alarmas", fontsize=13)
+            ax1.set_xlabel(xlabel)
+            ax1.set_ylabel("Probabilidad")
+            ax1.set_ylim(0, 1)
+            ax1.grid(alpha=0.3)
+            ax1.legend(loc="upper left")
 
-        timeline_rows = train_result.get("event_case_timelines", {}).get(str(selected_patient), [])
-        if timeline_rows:
-            timeline_df = pd.DataFrame(timeline_rows)
-            event_time = int(selected_case["event_time"])
-            start_t = event_time - 120
-            end_t = event_time + 60
-            timeline_df = timeline_df[
-                (timeline_df["time"] >= start_t) & (timeline_df["time"] <= end_t)
-            ].set_index("time")
-            tl_reset = timeline_df.reset_index()
-            tl_long = tl_reset.melt(
-                id_vars=["time"], value_vars=["pred_positive", "true_event"], var_name="series", value_name="value"
-            )
+            metrics_lines = []
+            if ev_start_x is not None:
+                metrics_lines.append(f"Evento real: sí (inicio={ev_start_x:.2f}min)")
+            else:
+                metrics_lines.append("Evento real: no")
+            if selected_case.get("first_alarm_time") is not None:
+                fa = selected_case["first_alarm_time"] / 60.0
+                metrics_lines.append(f"Primera alarma: {fa:.2f}min")
+            else:
+                metrics_lines.append("Primera alarma: (no hubo)")
+            if selected_case.get("lead_time_seconds") is not None:
+                lt = selected_case["lead_time_seconds"] / 60.0
+                metrics_lines.append(f"Anticipación (lead time): {lt:.2f}min")
+            metrics_lines.append(f"Falsas alarmas: {selected_case.get('false_alarm_count', 0)}")
+            ax1.text(0.99, 0.02, "\n".join(metrics_lines), transform=ax1.transAxes, ha="right", va="bottom", fontsize=10)
 
-            tl_bands = []
-            detection_time = selected_case["first_detection_time"]
-            if detection_time is not None:
-                win_size = int(train_result.get("window_size", int(window_size)))
-                detection_start = max(start_t, int(detection_time) - win_size + 1)
-                detection_end = min(end_t, int(detection_time))
-                if detection_start <= detection_end:
-                    tl_bands.append(
-                        {
-                            "x_start": detection_start,
-                            "x_end": detection_end,
-                            "label": "Ventana detectada",
-                            "color": "#6aa7ff",
-                            "opacity": 0.2,
-                        }
-                    )
-            tl_bands.append(
-                {
-                    "x_start": max(start_t, event_time - 0.5),
-                    "x_end": min(end_t, event_time + 0.5),
-                    "label": "Evento",
-                    "color": "#2563eb",
-                    "opacity": 0.4,
-                }
-            )
+            ax2 = fig.add_axes([0.08, 0.10, 0.88, 0.36])
+            for col in signal_cols:
+                ax2.plot(xx, patient_df[col].to_numpy(), label=col, linewidth=1.5)
+            if ev_start_x is not None:
+                ax2.axvspan(ev_start_x, ev_end_x, alpha=0.15, color="tab:red")
+            ax2.set_title("Señales del paciente (inspección visual)", fontsize=13)
+            ax2.set_xlabel(xlabel)
+            ax2.set_ylabel("Valor (escalas distintas)")
+            ax2.grid(alpha=0.3)
+            ax2.legend(loc="upper left", ncol=4)
 
-            tl_line = alt.Chart(tl_long).mark_line(strokeWidth=2).encode(
-                x=alt.X("time:Q", title="Tiempo (s)"),
-                y=alt.Y("value:Q", title="Predicción / Evento"),
-                color=alt.Color("series:N", title="Serie"),
-            )
-            tl_band = alt.Chart(pd.DataFrame(tl_bands)).mark_rect().encode(
-                x="x_start:Q",
-                x2="x_end:Q",
-                color=alt.Color(
-                    "label:N",
-                    scale=alt.Scale(
-                        domain=["Ventana detectada", "Evento"],
-                        range=["#6aa7ff", "#2563eb"],
-                    ),
-                    legend=None,
-                ),
-                opacity=alt.Opacity("opacity:Q", legend=None),
-            )
-            st.altair_chart((tl_band + tl_line).properties(height=260), use_container_width=True)
+            ax1.set_xlim(x_min, x_max)
+            ax2.set_xlim(x_min, x_max)
+            st.pyplot(fig, clear_figure=True)

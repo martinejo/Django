@@ -206,6 +206,8 @@ def train_and_evaluate(
     window_size: int = 5,
     prediction_horizon: int = 3,
     detection_threshold: float = 0.35,
+    alarm_min_consecutive: int = 2,
+    alarm_refractory: int = 10,
 ):
     """Entrena un modelo por ventanas y devuelve métricas de clasificación."""
     from sklearn.metrics import accuracy_score, classification_report
@@ -259,15 +261,15 @@ def train_and_evaluate(
 
     event_case_summaries = []
     event_case_timelines: dict[str, list[dict[str, Any]]] = {}
-    test_event_patients = test_df.groupby("patient_id")[target_column].max()
-    test_event_patients = test_event_patients[test_event_patients == 1].index.tolist()
+    test_patient_payloads: dict[str, dict[str, Any]] = {}
+    test_patient_ids = test_df["patient_id"].drop_duplicates().tolist()
 
-    for patient_id in test_event_patients:
+    for patient_id in test_patient_ids:
         patient_group = test_df[test_df["patient_id"] == patient_id].sort_values(time_column)
-        event_times = patient_group.loc[patient_group[target_column] == 1, time_column].to_numpy()
-        if len(event_times) == 0:
-            continue
-        event_time = int(event_times[0])
+        event_times = patient_group.loc[patient_group[target_column] == 1, time_column].to_numpy(dtype=int)
+        has_event = len(event_times) > 0
+        event_start_time = int(event_times[0]) if has_event else None
+        event_end_time = int(event_times[-1]) if has_event else None
 
         patient_windows = _patient_window_arrays(
             group_sorted=patient_group,
@@ -282,35 +284,78 @@ def train_and_evaluate(
         patient_x, _, patient_window_end_time = patient_windows
         if hasattr(model, "predict_proba"):
             patient_prob = model.predict_proba(patient_x)[:, 1]
-            patient_pred = (patient_prob >= detection_threshold).astype(int)
         else:
-            patient_pred = model.predict(patient_x).astype(int)
+            patient_prob = model.predict(patient_x).astype(float)
 
-        before_event_mask = patient_window_end_time < event_time
-        detections = patient_window_end_time[(patient_pred == 1) & before_event_mask]
-        if len(detections) > 0:
-            first_detection_time = int(detections.min())
-            lead_time_seconds = int(event_time - first_detection_time)
+        above = patient_prob >= detection_threshold
+        alarm_min_consecutive = max(1, int(alarm_min_consecutive))
+        alarm_refractory = max(0, int(alarm_refractory))
+
+        alarm_times: list[int] = []
+        consecutive = 0
+        last_alarm_t = -10**9
+        for i, t_curr in enumerate(patient_window_end_time):
+            t_curr = int(t_curr)
+            if t_curr - last_alarm_t < alarm_refractory:
+                consecutive = 0
+                continue
+
+            if above[i]:
+                consecutive += 1
+            else:
+                consecutive = 0
+
+            if consecutive >= alarm_min_consecutive:
+                alarm_times.append(t_curr)
+                last_alarm_t = t_curr
+                consecutive = 0
+
+        first_alarm_time = int(alarm_times[0]) if len(alarm_times) > 0 else None
+        lead_time_seconds = None
+        false_alarm_count = 0
+
+        if has_event:
+            alarms_np = np.asarray(alarm_times, dtype=int)
+            if first_alarm_time is not None:
+                lead_time_seconds = int(event_start_time - first_alarm_time)
+            if len(alarms_np) > 0:
+                valid = (alarms_np < event_start_time) | (
+                    (alarms_np >= event_start_time) & (alarms_np <= event_end_time)
+                )
+                false_alarm_count = int((~valid).sum())
         else:
-            first_detection_time = None
-            lead_time_seconds = None
+            false_alarm_count = int(len(alarm_times))
 
         summary = {
             "patient_id": int(patient_id) if str(patient_id).isdigit() else str(patient_id),
-            "event_time": event_time,
-            "first_detection_time": first_detection_time,
+            "is_test_patient": True,
+            "has_event": bool(has_event),
+            "event_start_time": event_start_time,
+            "event_end_time": event_end_time,
+            "first_alarm_time": first_alarm_time,
             "lead_time_seconds": lead_time_seconds,
+            "false_alarm_count": false_alarm_count,
         }
         event_case_summaries.append(summary)
 
         event_case_timelines[str(patient_id)] = [
             {
                 "time": int(t),
-                "pred_positive": int(p),
-                "true_event": int(t == event_time),
+                "pred_prob": float(prob),
+                "pred_positive": int(prob >= detection_threshold),
+                "true_event": int(has_event and event_start_time <= int(t) <= event_end_time),
             }
-            for t, p in zip(patient_window_end_time, patient_pred)
+            for t, prob in zip(patient_window_end_time, patient_prob)
         ]
+        test_patient_payloads[str(patient_id)] = {
+            "pred_times": [int(t) for t in patient_window_end_time.tolist()],
+            "pred_proba": [float(p) for p in patient_prob.tolist()],
+            "alarm_times": [int(t) for t in alarm_times],
+            "event_start_time": event_start_time,
+            "event_end_time": event_end_time,
+        }
+
+    event_case_summaries.sort(key=lambda x: (not x["has_event"], x["patient_id"]))
 
     return {
         "model": model,
@@ -324,4 +369,9 @@ def train_and_evaluate(
         "window_size": int(window_size),
         "prediction_horizon": int(prediction_horizon),
         "detection_threshold": detection_threshold,
+        "alarm_min_consecutive": int(alarm_min_consecutive),
+        "alarm_refractory": int(alarm_refractory),
+        "time_column": time_column,
+        "test_patient_summaries": event_case_summaries,
+        "test_patient_payloads": test_patient_payloads,
     }
