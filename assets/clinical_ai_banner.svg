@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="320" viewBox="0 0 1400 320">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f4c5c"/>
+      <stop offset="100%" stop-color="#0b7285"/>
+    </linearGradient>
+    <linearGradient id="pulse" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#99e9f2"/>
+      <stop offset="100%" stop-color="#e3fafc"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="1400" height="320" fill="url(#bg)" rx="18"/>
+
+  <g opacity="0.15">
+    <circle cx="1230" cy="80" r="110" fill="#ffffff"/>
+    <circle cx="1120" cy="210" r="90" fill="#ffffff"/>
+    <circle cx="1320" cy="230" r="80" fill="#ffffff"/>
+  </g>
+
+  <g transform="translate(70,70)">
+    <rect x="0" y="0" width="280" height="180" rx="18" fill="#ffffff" opacity="0.12"/>
+    <path d="M35 120 L75 120 L95 95 L115 145 L140 70 L160 120 L245 120"
+          stroke="url(#pulse)" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="140" cy="70" r="8" fill="#99e9f2"/>
+  </g>
+
+  <g transform="translate(420,70)">
+    <rect x="0" y="0" width="220" height="180" rx="18" fill="#ffffff" opacity="0.12"/>
+    <path d="M70 65 C55 42, 25 58, 32 90 C36 108, 60 118, 80 130
+             C100 118, 124 108, 128 90 C135 58, 105 42, 90 65
+             C86 69, 74 69, 70 65Z"
+          fill="#d9faff" opacity="0.95"/>
+    <circle cx="80" cy="93" r="7" fill="#0b7285"/>
+    <circle cx="95" cy="104" r="6" fill="#0b7285"/>
+    <circle cx="65" cy="108" r="6" fill="#0b7285"/>
+    <line x1="80" y1="93" x2="95" y2="104" stroke="#0b7285" stroke-width="3"/>
+    <line x1="80" y1="93" x2="65" y2="108" stroke="#0b7285" stroke-width="3"/>
+  </g>
+
+  <g transform="translate(705,70)">
+    <rect x="0" y="0" width="220" height="180" rx="18" fill="#ffffff" opacity="0.12"/>
+    <rect x="92" y="50" width="36" height="80" rx="8" fill="#d9faff"/>
+    <rect x="70" y="72" width="80" height="36" rx="8" fill="#d9faff"/>
+    <path d="M90 145 Q110 122, 130 145" stroke="#d9faff" stroke-width="8" fill="none" stroke-linecap="round"/>
+  </g>
+
+  <text x="970" y="128" fill="#ffffff" font-size="42" font-family="Segoe UI, Arial, sans-serif" font-weight="700">
+    AI + Cirugía
+  </text>
+  <text x="970" y="176" fill="#d9faff" font-size="26" font-family="Segoe UI, Arial, sans-serif" font-weight="500">
+    Monitorización de Señales y
+  </text>
+  <text x="970" y="212" fill="#d9faff" font-size="26" font-family="Segoe UI, Arial, sans-serif" font-weight="500">
+    Detección Anticipada de Eventos
+  </text>
+</svg>

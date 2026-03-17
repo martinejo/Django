@@ -10,6 +10,7 @@ from src.anomaly_web.config import MODEL_REGISTRY
 from src.anomaly_web.training import read_csv, train_and_evaluate
 
 EXAMPLES_DIR = Path(__file__).parent / "data" / "examples"
+BANNER_PATH = Path(__file__).parent / "assets" / "clinical_ai_banner.svg"
 EXAMPLE_DATASETS = {
     "Hipotensión durante inducción": {
         "file": "hipotension_induccion.csv",
@@ -26,8 +27,43 @@ EXAMPLE_DATASETS = {
 }
 
 st.set_page_config(page_title="Predicción temprana de anomalías", layout="wide")
+
+st.markdown(
+    """
+    <style>
+    .stApp {
+        background: linear-gradient(180deg, #f4fbff 0%, #eef7fb 100%);
+    }
+    h1, h2, h3 {
+        color: #0f4c5c !important;
+        letter-spacing: 0.2px;
+    }
+    div[data-testid="stMetric"] {
+        background: #ffffff;
+        border: 1px solid #d5e7ef;
+        border-radius: 12px;
+        padding: 10px 14px;
+    }
+    .stButton > button {
+        background: #0f766e;
+        color: #ffffff;
+        border-radius: 8px;
+        border: none;
+    }
+    .stButton > button:hover {
+        background: #0b5f58;
+        color: #ffffff;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+if BANNER_PATH.exists():
+    st.image(str(BANNER_PATH), width="stretch")
+
 st.title("Predicción temprana de anomalías")
-st.caption("Carga CSV, elige modelo e hiperparámetros, y entrena en minutos.")
+st.caption("Panel clínico de soporte para detección anticipada de eventos perioperatorios.")
 
 source = st.radio(
     "Fuente de datos",
@@ -73,7 +109,7 @@ else:
 
 
 st.subheader("Vista rápida del dataset")
-st.dataframe(data.head(20), use_container_width=True)
+st.dataframe(data.head(20), width="stretch")
 
 columns = list(data.columns)
 default_target_index = columns.index("anomaly") if "anomaly" in columns else 0
@@ -99,10 +135,13 @@ if "patient_id" in data.columns and time_column is not None:
     anomaly_map = dict(
         zip(patient_summary["patient_id"], patient_summary["has_anomaly"].astype(int).tolist())
     )
+    patient_options = sorted(patient_options, key=lambda pid: anomaly_map.get(pid, 0), reverse=True)
     selected_patient = st.selectbox(
         "Paciente para visualizar",
         options=patient_options,
-        format_func=lambda pid: f"{pid} {'(anomalía)' if anomaly_map.get(pid, 0) == 1 else ''}".strip(),
+        format_func=lambda pid: (
+            f"Paciente {pid} {'• evento' if anomaly_map.get(pid, 0) == 1 else '• sin evento'}"
+        ),
     )
 
     excluded = {"patient_id", time_column, target_col}
@@ -116,12 +155,30 @@ if "patient_id" in data.columns and time_column is not None:
     )
 
     if selected_signals:
-        patient_df = (
+        patient_df_full = (
             data[data["patient_id"] == selected_patient]
             .sort_values(time_column)
-            .set_index(time_column)[selected_signals]
         )
-        st.line_chart(patient_df, use_container_width=True)
+        event_times = patient_df_full.loc[patient_df_full[target_col] == 1, time_column].to_numpy()
+        if len(event_times) > 0:
+            event_time = int(event_times[0])
+            start_t = event_time - 120
+            end_t = event_time + 60
+            patient_df = patient_df_full[
+                (patient_df_full[time_column] >= start_t) & (patient_df_full[time_column] <= end_t)
+            ]
+            st.caption(
+                f"Ventana mostrada: de {start_t}s a {end_t}s respecto al evento en {event_time}s."
+            )
+        else:
+            patient_df = patient_df_full.head(180)
+            st.caption("Paciente sin evento: se muestran 180 segundos iniciales como referencia.")
+
+        st.line_chart(
+            patient_df.set_index(time_column)[selected_signals],
+            width="stretch",
+            height=460,
+        )
     else:
         st.info("Selecciona al menos una señal para mostrar la gráfica.")
 else:
@@ -231,12 +288,29 @@ if train_result is not None:
             and pd.api.types.is_numeric_dtype(patient_case_df[col])
         ]
         if signal_cols:
+            event_time = int(selected_case["event_time"])
+            start_t = event_time - 120
+            end_t = event_time + 60
+            patient_case_window = patient_case_df[
+                (patient_case_df[time_column] >= start_t) & (patient_case_df[time_column] <= end_t)
+            ]
             st.line_chart(
-                patient_case_df.set_index(time_column)[signal_cols],
-                use_container_width=True,
+                patient_case_window.set_index(time_column)[signal_cols],
+                width="stretch",
+                height=460,
             )
 
         timeline_rows = train_result.get("event_case_timelines", {}).get(str(selected_patient), [])
         if timeline_rows:
-            timeline_df = pd.DataFrame(timeline_rows).set_index("time")
-            st.line_chart(timeline_df[["pred_positive", "true_event"]], use_container_width=True)
+            timeline_df = pd.DataFrame(timeline_rows)
+            event_time = int(selected_case["event_time"])
+            start_t = event_time - 120
+            end_t = event_time + 60
+            timeline_df = timeline_df[
+                (timeline_df["time"] >= start_t) & (timeline_df["time"] <= end_t)
+            ].set_index("time")
+            st.line_chart(
+                timeline_df[["pred_positive", "true_event"]],
+                width="stretch",
+                height=260,
+            )
