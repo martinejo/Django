@@ -318,4 +318,6 @@ def train_and_evaluate(
         "signal_columns": signal_columns,
         "event_case_summaries": event_case_summaries,
         "event_case_timelines": event_case_timelines,
+        "window_size": int(window_size),
+        "prediction_horizon": int(prediction_horizon),
     }

@@ -3,6 +3,7 @@
 import ast
 from pathlib import Path
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -307,11 +308,62 @@ if train_result is not None:
             patient_case_window = patient_case_df[
                 (patient_case_df[time_column] >= start_t) & (patient_case_df[time_column] <= end_t)
             ]
-            st.line_chart(
-                patient_case_window.set_index(time_column)[signal_cols],
-                width="stretch",
-                height=460,
+            signal_long = patient_case_window[[time_column] + signal_cols].melt(
+                id_vars=[time_column], var_name="signal", value_name="value"
             )
+
+            bands = []
+            detection_time = selected_case["first_detection_time"]
+            if detection_time is not None:
+                win_size = int(train_result.get("window_size", int(window_size)))
+                detection_start = max(start_t, int(detection_time) - win_size + 1)
+                detection_end = min(end_t, int(detection_time))
+                if detection_start <= detection_end:
+                    bands.append(
+                        {
+                            "x_start": detection_start,
+                            "x_end": detection_end,
+                            "label": "Ventana detectada",
+                            "color": "#6aa7ff",
+                            "opacity": 0.18,
+                        }
+                    )
+            bands.append(
+                {
+                    "x_start": max(start_t, event_time - 0.5),
+                    "x_end": min(end_t, event_time + 0.5),
+                    "label": "Evento",
+                    "color": "#2563eb",
+                    "opacity": 0.38,
+                }
+            )
+
+            base = alt.Chart(signal_long).encode(
+                x=alt.X(f"{time_column}:Q", title="Tiempo (s)"),
+                y=alt.Y("value:Q", title="Valor señal"),
+                color=alt.Color("signal:N", title="Señal"),
+            )
+            line_layer = base.mark_line(strokeWidth=2)
+
+            chart = line_layer
+            if bands:
+                band_df = pd.DataFrame(bands)
+                band_layer = alt.Chart(band_df).mark_rect().encode(
+                    x="x_start:Q",
+                    x2="x_end:Q",
+                    color=alt.Color(
+                        "label:N",
+                        scale=alt.Scale(
+                            domain=["Ventana detectada", "Evento"],
+                            range=["#6aa7ff", "#2563eb"],
+                        ),
+                        legend=alt.Legend(title="Sombras"),
+                    ),
+                    opacity=alt.Opacity("opacity:Q", legend=None),
+                )
+                chart = band_layer + line_layer
+
+            st.altair_chart(chart.properties(height=460), width="stretch")
 
         timeline_rows = train_result.get("event_case_timelines", {}).get(str(selected_patient), [])
         if timeline_rows:
@@ -322,8 +374,53 @@ if train_result is not None:
             timeline_df = timeline_df[
                 (timeline_df["time"] >= start_t) & (timeline_df["time"] <= end_t)
             ].set_index("time")
-            st.line_chart(
-                timeline_df[["pred_positive", "true_event"]],
-                width="stretch",
-                height=260,
+            tl_reset = timeline_df.reset_index()
+            tl_long = tl_reset.melt(
+                id_vars=["time"], value_vars=["pred_positive", "true_event"], var_name="series", value_name="value"
             )
+
+            tl_bands = []
+            detection_time = selected_case["first_detection_time"]
+            if detection_time is not None:
+                win_size = int(train_result.get("window_size", int(window_size)))
+                detection_start = max(start_t, int(detection_time) - win_size + 1)
+                detection_end = min(end_t, int(detection_time))
+                if detection_start <= detection_end:
+                    tl_bands.append(
+                        {
+                            "x_start": detection_start,
+                            "x_end": detection_end,
+                            "label": "Ventana detectada",
+                            "color": "#6aa7ff",
+                            "opacity": 0.2,
+                        }
+                    )
+            tl_bands.append(
+                {
+                    "x_start": max(start_t, event_time - 0.5),
+                    "x_end": min(end_t, event_time + 0.5),
+                    "label": "Evento",
+                    "color": "#2563eb",
+                    "opacity": 0.4,
+                }
+            )
+
+            tl_line = alt.Chart(tl_long).mark_line(strokeWidth=2).encode(
+                x=alt.X("time:Q", title="Tiempo (s)"),
+                y=alt.Y("value:Q", title="Predicción / Evento"),
+                color=alt.Color("series:N", title="Serie"),
+            )
+            tl_band = alt.Chart(pd.DataFrame(tl_bands)).mark_rect().encode(
+                x="x_start:Q",
+                x2="x_end:Q",
+                color=alt.Color(
+                    "label:N",
+                    scale=alt.Scale(
+                        domain=["Ventana detectada", "Evento"],
+                        range=["#6aa7ff", "#2563eb"],
+                    ),
+                    legend=None,
+                ),
+                opacity=alt.Opacity("opacity:Q", legend=None),
+            )
+            st.altair_chart((tl_band + tl_line).properties(height=260), width="stretch")
