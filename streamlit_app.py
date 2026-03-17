@@ -355,29 +355,51 @@ if train_result is not None:
                 x_max = float(np.max(x_pred))
 
             threshold = float(train_result.get("detection_threshold", detection_threshold))
-            fig = plt.figure(figsize=(12, 7))
+            fig = plt.figure(figsize=(12, 7), facecolor="#03131c")
 
             ax1 = fig.add_axes([0.08, 0.56, 0.88, 0.36])
-            ax1.plot(x_pred, pred_proba, color="tab:blue", linewidth=2, marker="x", label="P(evento en horizonte)")
-            ax1.fill_between(x_pred, pred_proba, alpha=0.2, color="tab:blue")
+            ax1.set_facecolor("#062433")
+            ax1.plot(
+                x_pred,
+                pred_proba,
+                color="#6aa7ff",
+                linewidth=2.2,
+                marker="x",
+                markersize=4,
+                label="P(evento en horizonte)",
+            )
+            ax1.fill_between(x_pred, pred_proba, alpha=0.22, color="#6aa7ff")
             ax1.axhline(
                 threshold,
                 linestyle="--",
                 linewidth=2,
-                color="tab:orange",
+                color="#f59e0b",
                 label=f"Threshold={threshold:.2f}",
             )
             if ev_start_x is not None:
-                ax1.axvspan(ev_start_x, ev_end_x, alpha=0.15, color="tab:red", label="Evento real")
+                ax1.axvspan(ev_start_x, ev_end_x, alpha=0.26, color="#2563eb", label="Evento real")
             if len(x_alarm):
-                ax1.scatter(x_alarm, np.full_like(x_alarm, threshold), marker="^", s=80, color="tab:green", label="Alarma")
+                ax1.scatter(
+                    x_alarm,
+                    np.full_like(x_alarm, threshold),
+                    marker="^",
+                    s=80,
+                    color="#22c55e",
+                    label="Alarma",
+                )
                 for xa in x_alarm:
-                    ax1.axvline(xa, alpha=0.15, color="tab:green", linewidth=2)
+                    ax1.axvline(xa, alpha=0.18, color="#22c55e", linewidth=2)
             ax1.set_title("Streaming: probabilidad y alarmas", fontsize=13)
             ax1.set_xlabel(xlabel)
             ax1.set_ylabel("Probabilidad")
             ax1.set_ylim(0, 1)
-            ax1.grid(alpha=0.3)
+            ax1.grid(alpha=0.22, color="#6b9fb4")
+            ax1.tick_params(colors="#9fe9ff")
+            ax1.xaxis.label.set_color("#9fe9ff")
+            ax1.yaxis.label.set_color("#9fe9ff")
+            ax1.title.set_color("#9fe9ff")
+            for spine in ax1.spines.values():
+                spine.set_color("#2b6d84")
             ax1.legend(loc="upper left")
 
             metrics_lines = []
@@ -394,17 +416,49 @@ if train_result is not None:
                 lt = selected_case["lead_time_seconds"] / 60.0
                 metrics_lines.append(f"Anticipación (lead time): {lt:.2f}min")
             metrics_lines.append(f"Falsas alarmas: {selected_case.get('false_alarm_count', 0)}")
-            ax1.text(0.99, 0.02, "\n".join(metrics_lines), transform=ax1.transAxes, ha="right", va="bottom", fontsize=10)
+            ax1.text(
+                0.99,
+                0.02,
+                "\n".join(metrics_lines),
+                transform=ax1.transAxes,
+                ha="right",
+                va="bottom",
+                fontsize=10,
+                color="#b6f0ff",
+            )
 
             ax2 = fig.add_axes([0.08, 0.10, 0.88, 0.36])
+            ax2.set_facecolor("#062433")
+            signal_palette = {
+                "hr": "#60a5fa",
+                "spo2": "#f59e0b",
+                "map": "#34d399",
+                "etco2": "#f87171",
+                "HR": "#60a5fa",
+                "SpO2": "#f59e0b",
+                "MAP": "#34d399",
+                "EtCO2": "#f87171",
+            }
             for col in signal_cols:
-                ax2.plot(xx, patient_df[col].to_numpy(), label=col, linewidth=1.5)
+                ax2.plot(
+                    xx,
+                    patient_df[col].to_numpy(),
+                    label=col,
+                    linewidth=1.6,
+                    color=signal_palette.get(col, "#9fe9ff"),
+                )
             if ev_start_x is not None:
-                ax2.axvspan(ev_start_x, ev_end_x, alpha=0.15, color="tab:red")
+                ax2.axvspan(ev_start_x, ev_end_x, alpha=0.26, color="#2563eb")
             ax2.set_title("Señales del paciente (inspección visual)", fontsize=13)
             ax2.set_xlabel(xlabel)
             ax2.set_ylabel("Valor (escalas distintas)")
-            ax2.grid(alpha=0.3)
+            ax2.grid(alpha=0.22, color="#6b9fb4")
+            ax2.tick_params(colors="#9fe9ff")
+            ax2.xaxis.label.set_color("#9fe9ff")
+            ax2.yaxis.label.set_color("#9fe9ff")
+            ax2.title.set_color("#9fe9ff")
+            for spine in ax2.spines.values():
+                spine.set_color("#2b6d84")
             ax2.legend(loc="upper left", ncol=4)
 
             ax1.set_xlim(x_min, x_max)
