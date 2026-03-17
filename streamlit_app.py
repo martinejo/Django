@@ -461,6 +461,50 @@ if train_result is not None:
     st.text("Classification report")
     st.code(train_result["report"])
 
+    patient_metrics = train_result.get("patient_level_metrics")
+    if patient_metrics:
+        st.subheader("Resultados por paciente")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Pacientes con evento", f"{patient_metrics.get('patients_with_event', 0)}")
+        c2.metric("Pacientes detectados", f"{patient_metrics.get('patients_detected', 0)}")
+        sens_value = patient_metrics.get("sensitivity_by_patient")
+        c3.metric(
+            "Sensibilidad por paciente",
+            f"{sens_value:.2%}" if sens_value is not None else "N/A",
+        )
+
+        st.caption(
+            f"Tiempo esperado de predicción (horizonte): "
+            f"{patient_metrics.get('expected_prediction_horizon', prediction_horizon)}"
+        )
+
+        lead_times = patient_metrics.get("lead_times_seconds", [])
+        if lead_times:
+            st.write("Tiempos de predicción (segundos):")
+            st.code(str(lead_times))
+            st.write(
+                "Lead time medio/mediano/min/máx (s): "
+                f"{patient_metrics.get('lead_time_mean_seconds', 0):.2f} / "
+                f"{patient_metrics.get('lead_time_median_seconds', 0):.2f} / "
+                f"{patient_metrics.get('lead_time_min_seconds', 0)} / "
+                f"{patient_metrics.get('lead_time_max_seconds', 0)}"
+            )
+            st.write(
+                "% detectados con > horizonte/2: "
+                f"{patient_metrics.get('pct_detected_gt_half_horizon', 0):.2f}%"
+            )
+            st.write(
+                "% detectados con > horizonte: "
+                f"{patient_metrics.get('pct_detected_gt_horizon', 0):.2f}%"
+            )
+        else:
+            st.write("No hay detecciones con lead time calculable en este entrenamiento.")
+
+        st.write(
+            "Falsas alarmas promedio en pacientes sin evento: "
+            f"{patient_metrics.get('false_alarms_avg_no_event_patients', 0):.2f}"
+        )
+
     test_cases = train_result.get("test_patient_summaries", [])
     test_payloads = train_result.get("test_patient_payloads", {})
     if test_cases:

@@ -383,6 +383,61 @@ def train_and_evaluate(
 
     event_case_summaries.sort(key=lambda x: (not x["has_event"], x["patient_id"]))
 
+    patients_with_event = sum(1 for case in event_case_summaries if case["has_event"])
+    detected_event_cases = [
+        case
+        for case in event_case_summaries
+        if case["has_event"] and case["first_alarm_time"] is not None
+    ]
+    patients_detected = len(detected_event_cases)
+    lead_times_seconds = [
+        int(case["lead_time_seconds"])
+        for case in detected_event_cases
+        if case["lead_time_seconds"] is not None
+    ]
+    false_alarm_counts_no_event = [
+        int(case["false_alarm_count"])
+        for case in event_case_summaries
+        if not case["has_event"]
+    ]
+
+    sensitivity_by_patient = (
+        float(patients_detected / patients_with_event) if patients_with_event > 0 else None
+    )
+    lead_times_np = (
+        np.asarray(lead_times_seconds, dtype=np.float32)
+        if len(lead_times_seconds) > 0
+        else np.asarray([], dtype=np.float32)
+    )
+    false_alarm_avg_no_event = (
+        float(np.mean(false_alarm_counts_no_event))
+        if len(false_alarm_counts_no_event) > 0
+        else 0.0
+    )
+
+    patient_level_metrics = {
+        "patients_with_event": int(patients_with_event),
+        "patients_detected": int(patients_detected),
+        "sensitivity_by_patient": sensitivity_by_patient,
+        "expected_prediction_horizon": int(prediction_horizon),
+        "lead_times_seconds": [int(v) for v in lead_times_seconds],
+        "lead_time_mean_seconds": float(lead_times_np.mean()) if lead_times_np.size else None,
+        "lead_time_median_seconds": float(np.median(lead_times_np)) if lead_times_np.size else None,
+        "lead_time_min_seconds": int(lead_times_np.min()) if lead_times_np.size else None,
+        "lead_time_max_seconds": int(lead_times_np.max()) if lead_times_np.size else None,
+        "pct_detected_gt_half_horizon": (
+            float(np.mean(lead_times_np > (prediction_horizon / 2.0)) * 100.0)
+            if lead_times_np.size
+            else None
+        ),
+        "pct_detected_gt_horizon": (
+            float(np.mean(lead_times_np > float(prediction_horizon)) * 100.0)
+            if lead_times_np.size
+            else None
+        ),
+        "false_alarms_avg_no_event_patients": float(false_alarm_avg_no_event),
+    }
+
     return {
         "model": model,
         "accuracy": float(accuracy_score(y_test, y_pred)),
@@ -401,4 +456,5 @@ def train_and_evaluate(
         "time_column": time_column,
         "test_patient_summaries": event_case_summaries,
         "test_patient_payloads": test_patient_payloads,
+        "patient_level_metrics": patient_level_metrics,
     }
