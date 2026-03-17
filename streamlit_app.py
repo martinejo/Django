@@ -138,23 +138,23 @@ elif "minute" in data.columns:
 
 if "patient_id" in data.columns and time_column is not None:
     anomaly_column = "anomaly" if "anomaly" in data.columns else target_col
+    anomaly_values = pd.to_numeric(data[anomaly_column], errors="coerce").fillna(0)
+    patient_has_anomaly = anomaly_values.groupby(data["patient_id"], dropna=False).max().gt(0)
     patient_summary = (
-        data.groupby("patient_id", dropna=False)[anomaly_column]
-        .max()
+        patient_has_anomaly.rename("has_anomaly")
         .reset_index()
-        .rename(columns={anomaly_column: "has_anomaly"})
     )
 
     patient_options = patient_summary["patient_id"].tolist()
     anomaly_map = dict(
-        zip(patient_summary["patient_id"], patient_summary["has_anomaly"].astype(int).tolist())
+        zip(patient_summary["patient_id"].tolist(), patient_summary["has_anomaly"].astype(bool).tolist())
     )
-    patient_options = sorted(patient_options, key=lambda pid: anomaly_map.get(pid, 0), reverse=True)
+    patient_options = sorted(patient_options, key=lambda pid: anomaly_map.get(pid, False), reverse=True)
     selected_patient = st.selectbox(
         "Paciente para visualizar",
         options=patient_options,
         format_func=lambda pid: (
-            f"Paciente {pid} {'• ALERTA' if anomaly_map.get(pid, 0) == 1 else '• estable'}"
+            f"Paciente {pid} {'• ALERTA' if anomaly_map.get(pid, False) else '• estable'}"
         ),
     )
 
