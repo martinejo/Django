@@ -149,7 +149,6 @@ if "patient_id" in data.columns and time_column is not None:
     anomaly_map = dict(
         zip(patient_summary["patient_id"].tolist(), patient_summary["has_anomaly"].astype(bool).tolist())
     )
-    patient_options = sorted(patient_options, key=lambda pid: anomaly_map.get(pid, False), reverse=True)
     selected_patient = st.selectbox(
         "Paciente para visualizar",
         options=patient_options,
