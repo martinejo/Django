@@ -574,6 +574,23 @@ if train_result is not None:
             prob_df = pd.DataFrame({"x": x_pred, "prob": pred_proba})
             prob_df = prob_df[(prob_df["x"] >= x_min) & (prob_df["x"] <= x_max)]
 
+            signal_df = patient_df[[time_column] + signal_cols].copy()
+            signal_df["x"] = xx
+            signal_df = signal_df[(signal_df["x"] >= x_min) & (signal_df["x"] <= x_max)]
+
+            # Ajuste fino del dominio X para evitar zonas vacías enormes.
+            x_min_candidates = []
+            x_max_candidates = []
+            if not prob_df.empty:
+                x_min_candidates.append(float(prob_df["x"].min()))
+                x_max_candidates.append(float(prob_df["x"].max()))
+            if not signal_df.empty:
+                x_min_candidates.append(float(signal_df["x"].min()))
+                x_max_candidates.append(float(signal_df["x"].max()))
+            if x_min_candidates and x_max_candidates:
+                x_min = min(x_min_candidates)
+                x_max = max(x_max_candidates)
+
             event_span_df = pd.DataFrame(columns=["x_start", "x_end"])
             if ev_start_x is not None and ev_end_x is not None:
                 event_span_df = pd.DataFrame([{"x_start": ev_start_x, "x_end": ev_end_x}])
@@ -633,9 +650,6 @@ if train_result is not None:
                 "MAP": "#34d399",
                 "EtCO2": "#f87171",
             }
-            signal_df = patient_df[[time_column] + signal_cols].copy()
-            signal_df["x"] = xx
-            signal_df = signal_df[(signal_df["x"] >= x_min) & (signal_df["x"] <= x_max)]
             signal_long = signal_df.melt(
                 id_vars=["x"], value_vars=signal_cols, var_name="signal", value_name="value"
             )
