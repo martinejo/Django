@@ -591,9 +591,12 @@ if train_result is not None:
                 x_min = min(x_min_candidates)
                 x_max = max(x_max_candidates)
 
-            event_span_df = pd.DataFrame(columns=["x_start", "x_end"])
+            event_span_df = pd.DataFrame(columns=["x", "x2"])
             if ev_start_x is not None and ev_end_x is not None:
-                event_span_df = pd.DataFrame([{"x_start": ev_start_x, "x_end": ev_end_x}])
+                ev_left = max(x_min, float(ev_start_x))
+                ev_right = min(x_max, float(ev_end_x))
+                if ev_left < ev_right:
+                    event_span_df = pd.DataFrame([{"x": ev_left, "x2": ev_right}])
 
             alarm_df = pd.DataFrame({"x": x_alarm, "y": threshold})
             if not alarm_df.empty:
@@ -612,8 +615,8 @@ if train_result is not None:
                 color="#f59e0b", strokeDash=[8, 6], strokeWidth=2
             ).encode(y=alt.Y("thr:Q", scale=alt.Scale(domain=[0, 1])))
             event_rect = alt.Chart(event_span_df).mark_rect(color="#2563eb", opacity=0.22).encode(
-                x="x_start:Q",
-                x2="x_end:Q",
+                x=alt.X("x:Q", scale=alt.Scale(domain=[x_min, x_max]), axis=None),
+                x2="x2:Q",
             )
             alarm_lines = alt.Chart(alarm_df).mark_rule(color="#22c55e", opacity=0.28).encode(x="x:Q")
             alarm_points = alt.Chart(alarm_df).mark_point(
@@ -621,7 +624,7 @@ if train_result is not None:
             ).encode(x="x:Q", y="y:Q")
             prob_chart = (
                 event_rect + prob_area + prob_line + threshold_rule + alarm_lines + alarm_points
-            ).properties(height=300, title="Streaming: probabilidad y alarmas")
+            ).properties(height=300, title="Streaming: probabilidad y alarmas").resolve_scale(x="shared")
             st.altair_chart(prob_chart, use_container_width=True)
 
             metrics_lines = []
@@ -663,10 +666,11 @@ if train_result is not None:
                     title="Señales",
                 ),
             )
-            signal_event_rect = alt.Chart(event_span_df).mark_rect(
-                color="#2563eb", opacity=0.22
-            ).encode(x="x_start:Q", x2="x_end:Q")
+            signal_event_rect = alt.Chart(event_span_df).mark_rect(color="#2563eb", opacity=0.22).encode(
+                x=alt.X("x:Q", scale=alt.Scale(domain=[x_min, x_max]), axis=None),
+                x2="x2:Q",
+            )
             signal_chart = (signal_event_rect + signal_line).properties(
                 height=320, title="Señales del paciente (inspección visual)"
-            )
+            ).resolve_scale(x="shared")
             st.altair_chart(signal_chart, use_container_width=True)
