@@ -316,11 +316,15 @@ if train_result is not None:
         ev_end_t = payload.get("event_end_time")
 
         patient_df = data[data["patient_id"].astype(str) == str(selected_patient)].sort_values(time_column)
-        signal_cols = [
-            col
-            for col in ["HR", "SpO2", "MAP", "EtCO2"]
-            if col in patient_df.columns
-        ]
+        preferred_signals = ["hr", "spo2", "map", "etco2", "HR", "SpO2", "MAP", "EtCO2"]
+        signal_cols = [col for col in preferred_signals if col in patient_df.columns]
+        if not signal_cols:
+            signal_cols = [
+                col
+                for col in patient_df.columns
+                if col not in {"patient_id", time_column, target_col}
+                and pd.api.types.is_numeric_dtype(patient_df[col])
+            ][:4]
 
         if len(pred_times) > 0 and len(signal_cols) > 0:
             use_minutes = True
