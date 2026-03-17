@@ -170,7 +170,7 @@ if st.button("Entrenar"):
     with st.spinner("Entrenando modelo..."):
         try:
             result = train_and_evaluate(
-                data=data,
+                df=data,
                 target_column=target_col,
                 model_key=model_key,
                 hyperparams=user_params,
