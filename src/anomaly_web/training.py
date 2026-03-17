@@ -1,5 +1,7 @@
 """Funciones de entrenamiento y evaluación para la app de anomalías."""
 
+from __future__ import annotations
+
 from importlib import import_module
 from typing import Any
 
