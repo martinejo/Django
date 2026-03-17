@@ -181,9 +181,62 @@ if st.button("Entrenar"):
             st.error(f"Error durante entrenamiento: {exc}")
             st.stop()
 
+    st.session_state["train_result"] = result
     st.success("Entrenamiento completado")
-    st.metric("Accuracy", f"{result['accuracy']:.4f}")
-    st.metric("Ventanas usadas", f"{result['num_windows']}")
-    st.metric("Tasa positiva", f"{result['positive_rate']:.2%}")
+
+train_result = st.session_state.get("train_result")
+if train_result is not None:
+    st.metric("Accuracy", f"{train_result['accuracy']:.4f}")
+    st.metric("Ventanas usadas", f"{train_result['num_windows']}")
+    st.metric("Tasa positiva", f"{train_result['positive_rate']:.2%}")
     st.text("Classification report")
-    st.code(result["report"])
+    st.code(train_result["report"])
+
+    event_cases = train_result.get("event_case_summaries", [])
+    if event_cases:
+        st.subheader("Casos de test con evento")
+        selected_case = st.selectbox(
+            "Selecciona un caso para analizar antelación",
+            options=event_cases,
+            format_func=lambda case: (
+                f"Paciente {case['patient_id']} | "
+                f"evento={case['event_time']}s | "
+                + (
+                    f"detención={case['first_detection_time']}s | "
+                    f"antelación={case['lead_time_seconds']}s"
+                    if case["lead_time_seconds"] is not None
+                    else "sin detección previa"
+                )
+            ),
+        )
+
+        st.write(
+            "Resumen:",
+            {
+                "patient_id": selected_case["patient_id"],
+                "event_time_s": selected_case["event_time"],
+                "first_detection_time_s": selected_case["first_detection_time"],
+                "lead_time_s": selected_case["lead_time_seconds"],
+            },
+        )
+
+        selected_patient = selected_case["patient_id"]
+        patient_case_df = data[data["patient_id"].astype(str) == str(selected_patient)].sort_values(
+            time_column
+        )
+        signal_cols = [
+            col
+            for col in patient_case_df.columns
+            if col not in {"patient_id", time_column, target_col}
+            and pd.api.types.is_numeric_dtype(patient_case_df[col])
+        ]
+        if signal_cols:
+            st.line_chart(
+                patient_case_df.set_index(time_column)[signal_cols],
+                use_container_width=True,
+            )
+
+        timeline_rows = train_result.get("event_case_timelines", {}).get(str(selected_patient), [])
+        if timeline_rows:
+            timeline_df = pd.DataFrame(timeline_rows).set_index("time")
+            st.line_chart(timeline_df[["pred_positive", "true_event"]], use_container_width=True)
