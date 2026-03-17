@@ -37,7 +37,7 @@ def _build_window_dataset(
     window_size: int,
     prediction_horizon: int,
     patient_id_column: str = "patient_id",
-    time_column: str = "minute",
+    time_column: str | None = None,
 ):
     """Transforma series por paciente en ejemplos de ventana deslizante."""
     if target_column not in df.columns:
@@ -46,7 +46,16 @@ def _build_window_dataset(
         raise ValueError(
             f"Falta la columna '{patient_id_column}' para construir ventanas por paciente."
         )
-    if time_column not in df.columns:
+    if time_column is None:
+        if "second" in df.columns:
+            time_column = "second"
+        elif "minute" in df.columns:
+            time_column = "minute"
+        else:
+            raise ValueError(
+                "Falta columna temporal. Se esperaba 'second' o 'minute' para ordenar las ventanas."
+            )
+    elif time_column not in df.columns:
         raise ValueError(f"Falta la columna temporal '{time_column}' para ordenar las ventanas.")
 
     if window_size < 2:

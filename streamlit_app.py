@@ -80,11 +80,32 @@ default_target_index = columns.index("anomaly") if "anomaly" in columns else 0
 target_col = st.selectbox("Selecciona la columna objetivo", options=columns, index=default_target_index)
 
 st.subheader("Visualización de señales")
-if "patient_id" in data.columns and "minute" in data.columns:
-    patient_options = data["patient_id"].dropna().unique().tolist()
-    selected_patient = st.selectbox("Paciente para visualizar", options=patient_options)
+time_column = None
+if "second" in data.columns:
+    time_column = "second"
+elif "minute" in data.columns:
+    time_column = "minute"
 
-    excluded = {"patient_id", "minute", target_col}
+if "patient_id" in data.columns and time_column is not None:
+    anomaly_column = "anomaly" if "anomaly" in data.columns else target_col
+    patient_summary = (
+        data.groupby("patient_id", dropna=False)[anomaly_column]
+        .max()
+        .reset_index()
+        .rename(columns={anomaly_column: "has_anomaly"})
+    )
+
+    patient_options = patient_summary["patient_id"].tolist()
+    anomaly_map = dict(
+        zip(patient_summary["patient_id"], patient_summary["has_anomaly"].astype(int).tolist())
+    )
+    selected_patient = st.selectbox(
+        "Paciente para visualizar",
+        options=patient_options,
+        format_func=lambda pid: f"{pid} {'(anomalía)' if anomaly_map.get(pid, 0) == 1 else ''}".strip(),
+    )
+
+    excluded = {"patient_id", time_column, target_col}
     signal_candidates = [
         col for col in data.columns if col not in excluded and pd.api.types.is_numeric_dtype(data[col])
     ]
@@ -97,15 +118,15 @@ if "patient_id" in data.columns and "minute" in data.columns:
     if selected_signals:
         patient_df = (
             data[data["patient_id"] == selected_patient]
-            .sort_values("minute")
-            .set_index("minute")[selected_signals]
+            .sort_values(time_column)
+            .set_index(time_column)[selected_signals]
         )
         st.line_chart(patient_df, use_container_width=True)
     else:
         st.info("Selecciona al menos una señal para mostrar la gráfica.")
 else:
     st.info(
-        "Para graficar por paciente se esperan columnas 'patient_id' y 'minute' en el dataset."
+        "Para graficar por paciente se esperan columnas 'patient_id' y una temporal ('second' o 'minute')."
     )
 
 st.subheader("Configuración de entrenamiento por ventana")

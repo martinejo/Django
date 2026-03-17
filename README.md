@@ -37,9 +37,9 @@ streamlit run streamlit_app.py
 ## Formato mínimo esperado del CSV
 
 - Columna de paciente: `patient_id`.
-- Columna temporal: `minute` (simulación de 20 minutos por paciente).
+- Columna temporal: `second` (simulación de 20 minutos por paciente a 1 Hz, 1200 muestras).
 - Columnas de entrada: señales (ejemplo: `hr`, `spo2`, `map`, `etco2`, `rr`, `bis`).
-- Columna objetivo binaria: `anomaly` (minuto del evento = 1, resto = 0).
+- Columna objetivo binaria: `anomaly` (segundo del evento = 1, resto = 0).
 
 El entrenamiento se hace con ventana deslizante:
 - `tam_ventana`: cuántas muestras se usan para construir cada ejemplo.
@@ -57,8 +57,8 @@ Desde la interfaz puedes elegir `Usar CSV de ejemplo` y pulsar `Cargar CSV de ej
 
 Todos los ejemplos incluyen:
 - 1000 pacientes simulados.
-- 20 minutos por paciente.
-- Evento entre minuto 10 y 12 en el 30% de pacientes.
+- 20 minutos por paciente a 1 Hz (1200 segundos).
+- Evento entre minuto 10 y 12 (segundo 600 a 720) en el 30% de pacientes.
 - Señales típicas de quirófano (`hr`, `spo2`, `map`, `etco2`, `rr`, `bis`) y columna `anomaly`.
 
 ## Despliegue en VPS (sin dominio)
