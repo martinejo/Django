@@ -154,7 +154,7 @@ if "patient_id" in data.columns and time_column is not None:
         "Paciente para visualizar",
         options=patient_options,
         format_func=lambda pid: (
-            f"Paciente {pid} {'• evento' if anomaly_map.get(pid, 0) == 1 else '• sin evento'}"
+            f"Paciente {pid} {'• ALERTA' if anomaly_map.get(pid, 0) == 1 else '• estable'}"
         ),
     )
 
