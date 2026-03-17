@@ -6,6 +6,7 @@ Este repositorio contiene una **base inicial** para construir una aplicación we
 2. Elegir el modelo a entrenar desde la interfaz web.
 3. Configurar hiperparámetros por modelo.
 4. Entrenar y evaluar rápidamente para comparar enfoques.
+5. Visualizar señales por paciente (una o varias en la misma gráfica).
 
 ## Arquitectura propuesta
 
@@ -35,8 +36,16 @@ streamlit run streamlit_app.py
 
 ## Formato mínimo esperado del CSV
 
-- Columnas de entrada: señales (ejemplo: `hr`, `spo2`, `map`, etc.).
-- Columna objetivo binaria/multiclase: definida por el usuario en la app.
+- Columna de paciente: `patient_id`.
+- Columna temporal: `minute` (simulación de 20 minutos por paciente).
+- Columnas de entrada: señales (ejemplo: `hr`, `spo2`, `map`, `etco2`, `rr`, `bis`).
+- Columna objetivo binaria: `anomaly` (minuto del evento = 1, resto = 0).
+
+El entrenamiento se hace con ventana deslizante:
+- `tam_ventana`: cuántas muestras se usan para construir cada ejemplo.
+- `horizonte_prediccion`: cuántas muestras antes del evento se consideran positivas.
+
+Así, las ventanas dentro del horizonte previo al evento se etiquetan como 1 para detección anticipada.
 
 ## CSV de ejemplo incluidos
 
@@ -46,7 +55,11 @@ Desde la interfaz puedes elegir `Usar CSV de ejemplo` y pulsar `Cargar CSV de ej
 - `hipoxemia_ventilacion.csv`: descenso transitorio de SpO2 con cambios respiratorios.
 - `evento_mixto_hemodinamico.csv`: inestabilidad combinada (FC/MAP/BIS).
 
-Todos incluyen señales típicas de quirófano (`hr`, `spo2`, `map`, `etco2`, `rr`, `bis`) y columna `anomaly` para detección.
+Todos los ejemplos incluyen:
+- 1000 pacientes simulados.
+- 20 minutos por paciente.
+- Evento entre minuto 10 y 12 en el 30% de pacientes.
+- Señales típicas de quirófano (`hr`, `spo2`, `map`, `etco2`, `rr`, `bis`) y columna `anomaly`.
 
 ## Despliegue en VPS (sin dominio)
 

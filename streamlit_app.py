@@ -3,6 +3,7 @@
 import ast
 from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
 from src.anomaly_web.config import MODEL_REGISTRY
@@ -78,6 +79,51 @@ columns = list(data.columns)
 default_target_index = columns.index("anomaly") if "anomaly" in columns else 0
 target_col = st.selectbox("Selecciona la columna objetivo", options=columns, index=default_target_index)
 
+st.subheader("Visualización de señales")
+if "patient_id" in data.columns and "minute" in data.columns:
+    patient_options = data["patient_id"].dropna().unique().tolist()
+    selected_patient = st.selectbox("Paciente para visualizar", options=patient_options)
+
+    excluded = {"patient_id", "minute", target_col}
+    signal_candidates = [
+        col for col in data.columns if col not in excluded and pd.api.types.is_numeric_dtype(data[col])
+    ]
+    selected_signals = st.multiselect(
+        "Señales a mostrar",
+        options=signal_candidates,
+        default=signal_candidates[:1],
+    )
+
+    if selected_signals:
+        patient_df = (
+            data[data["patient_id"] == selected_patient]
+            .sort_values("minute")
+            .set_index("minute")[selected_signals]
+        )
+        st.line_chart(patient_df, use_container_width=True)
+    else:
+        st.info("Selecciona al menos una señal para mostrar la gráfica.")
+else:
+    st.info(
+        "Para graficar por paciente se esperan columnas 'patient_id' y 'minute' en el dataset."
+    )
+
+st.subheader("Configuración de entrenamiento por ventana")
+window_size = st.number_input(
+    "tam_ventana (muestras por ventana)",
+    min_value=2,
+    max_value=120,
+    value=5,
+    step=1,
+)
+prediction_horizon = st.number_input(
+    "horizonte_prediccion (muestras de antelación)",
+    min_value=1,
+    max_value=120,
+    value=3,
+    step=1,
+)
+
 model_key = st.selectbox(
     "Modelo",
     options=list(MODEL_REGISTRY.keys()),
@@ -102,12 +148,21 @@ if st.button("Entrenar"):
 
     with st.spinner("Entrenando modelo..."):
         try:
-            result = train_and_evaluate(data, target_col, model_key, user_params)
+            result = train_and_evaluate(
+                data=data,
+                target_column=target_col,
+                model_key=model_key,
+                hyperparams=user_params,
+                window_size=int(window_size),
+                prediction_horizon=int(prediction_horizon),
+            )
         except Exception as exc:
             st.error(f"Error durante entrenamiento: {exc}")
             st.stop()
 
     st.success("Entrenamiento completado")
     st.metric("Accuracy", f"{result['accuracy']:.4f}")
+    st.metric("Ventanas usadas", f"{result['num_windows']}")
+    st.metric("Tasa positiva", f"{result['positive_rate']:.2%}")
     st.text("Classification report")
     st.code(result["report"])
