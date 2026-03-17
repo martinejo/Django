@@ -571,8 +571,8 @@ if train_result is not None:
                 x_max = float(np.max(xx))
 
             threshold = float(train_result.get("detection_threshold", detection_threshold))
-            prob_df = pd.DataFrame({"x": x_pred, "prob": pred_proba})
-            prob_df = prob_df[(prob_df["x"] >= x_min) & (prob_df["x"] <= x_max)]
+            full_prob_df = pd.DataFrame({"x": x_pred, "prob": pred_proba})
+            prob_df = full_prob_df[(full_prob_df["x"] >= x_min) & (full_prob_df["x"] <= x_max)]
 
             signal_df = patient_df[[time_column] + signal_cols].copy()
             signal_df["x"] = xx
@@ -590,6 +590,20 @@ if train_result is not None:
             if x_min_candidates and x_max_candidates:
                 x_min = min(x_min_candidates)
                 x_max = max(x_max_candidates)
+
+            # Fallback robusto: si la curva de probabilidad queda vacía o con un único punto,
+            # mostramos los puntos más cercanos al evento para evitar gráfica "en blanco".
+            if len(prob_df) < 2 and not full_prob_df.empty:
+                if ev_start_x is not None:
+                    nearest_idx = np.abs(full_prob_df["x"].to_numpy(dtype=float) - float(ev_start_x)).argsort()
+                    keep_n = min(240, len(nearest_idx))
+                    selected = np.sort(nearest_idx[:keep_n])
+                    prob_df = full_prob_df.iloc[selected].sort_values("x")
+                else:
+                    prob_df = full_prob_df.copy()
+                if not prob_df.empty:
+                    x_min = min(float(signal_df["x"].min()) if not signal_df.empty else float(prob_df["x"].min()), float(prob_df["x"].min()))
+                    x_max = max(float(signal_df["x"].max()) if not signal_df.empty else float(prob_df["x"].max()), float(prob_df["x"].max()))
 
             event_span_df = pd.DataFrame(columns=["x", "x2"])
             if ev_start_x is not None and ev_end_x is not None:
@@ -611,6 +625,9 @@ if train_result is not None:
             prob_line = prob_base.mark_line(color="#6aa7ff", strokeWidth=2).encode(
                 y=alt.Y("prob:Q", title="Probabilidad", scale=alt.Scale(domain=[0, 1]))
             )
+            prob_points = prob_base.mark_point(color="#6aa7ff", filled=True, size=38).encode(
+                y=alt.Y("prob:Q", title="Probabilidad", scale=alt.Scale(domain=[0, 1]))
+            )
             threshold_rule = alt.Chart(pd.DataFrame({"thr": [threshold]})).mark_rule(
                 color="#f59e0b", strokeDash=[8, 6], strokeWidth=2
             ).encode(y=alt.Y("thr:Q", scale=alt.Scale(domain=[0, 1])))
@@ -623,7 +640,7 @@ if train_result is not None:
                 color="#22c55e", size=95, shape="triangle-up", filled=True
             ).encode(x="x:Q", y="y:Q")
             prob_chart = (
-                event_rect + prob_area + prob_line + threshold_rule + alarm_lines + alarm_points
+                event_rect + prob_area + prob_line + prob_points + threshold_rule + alarm_lines + alarm_points
             ).properties(height=300, title="Streaming: probabilidad y alarmas").resolve_scale(x="shared")
             st.altair_chart(prob_chart, use_container_width=True)
 
