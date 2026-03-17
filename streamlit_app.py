@@ -28,6 +28,106 @@ EXAMPLE_DATASETS = {
     },
 }
 
+
+def simulate_patient_signals(
+    patient_id: int,
+    duration_sec: int = 30 * 60,
+    fs: int = 100,
+    event_prob: float = 0.35,
+    rng: np.random.Generator | None = None,
+) -> pd.DataFrame:
+    """Simula señales fisiológicas y evento con fase pre-evento."""
+    rng = rng or np.random.default_rng()
+    n = duration_sec * fs
+    t = np.arange(n) / fs
+
+    hr_base = rng.normal(75, 8)
+    spo2_base = rng.normal(98, 0.6)
+    map_base = rng.normal(80, 10)
+    etco2_base = rng.normal(35, 4)
+
+    hr = hr_base + 3 * np.sin(2 * np.pi * t / 90) + rng.normal(0, 1.5, n)
+    spo2 = spo2_base + 0.2 * np.sin(2 * np.pi * t / 120) + rng.normal(0, 0.15, n)
+    map_ = map_base + 4 * np.sin(2 * np.pi * t / 110) + rng.normal(0, 2.0, n)
+    etco2 = etco2_base + 1.5 * np.sin(2 * np.pi * t / 80) + rng.normal(0, 0.8, n)
+
+    n_artifacts = rng.integers(3, 9)
+    for _ in range(n_artifacts):
+        center = rng.integers(0, n)
+        width = rng.integers(3, 12)
+        start = max(0, center - width // 2)
+        end = min(n, center + width // 2)
+        kind = rng.choice(["spo2_drop", "hr_spike", "map_drop", "etco2_spike"])
+        if kind == "spo2_drop":
+            spo2[start:end] -= rng.uniform(2, 6)
+        elif kind == "hr_spike":
+            hr[start:end] += rng.uniform(10, 25)
+        elif kind == "map_drop":
+            map_[start:end] -= rng.uniform(10, 25)
+        else:
+            etco2[start:end] += rng.uniform(5, 12)
+
+    has_event = rng.random() < event_prob
+    event = np.zeros(n, dtype=int)
+    if has_event:
+        min_event = int(duration_sec / 2 * fs)
+        max_event = max(min_event + 1, int((duration_sec - 2 * 60) * fs))
+        t_event = int(rng.integers(min_event, max_event))
+        event_len = int(rng.integers(10 * fs, 30 * fs))
+        event_end = min(n, t_event + event_len)
+        event[t_event:event_end] = 1
+
+        pre_len = int(rng.integers(30 * fs, 60 * fs))
+        pre_start = max(0, t_event - pre_len)
+        pre_t = np.linspace(0, 1, t_event - pre_start, endpoint=False)
+        map_[pre_start:t_event] -= 20 * pre_t**1.2 + rng.normal(0, 1.0, t_event - pre_start)
+        spo2[pre_start:t_event] -= 3 * pre_t**1.3 + rng.normal(0, 0.1, t_event - pre_start)
+        etco2[pre_start:t_event] -= 8 * pre_t**1.1 + rng.normal(0, 0.4, t_event - pre_start)
+        hr[pre_start:t_event] += 10 * pre_t - 15 * (pre_t**4) + rng.normal(0, 0.8, t_event - pre_start)
+        hr[t_event:event_end] = rng.normal(20, 5, event_end - t_event).clip(0, None)
+        spo2[t_event:event_end] = rng.normal(85, 3, event_end - t_event).clip(50, 100)
+        map_[t_event:event_end] = rng.normal(40, 6, event_end - t_event).clip(0, None)
+        etco2[t_event:event_end] = rng.normal(20, 4, event_end - t_event).clip(0, None)
+
+    hr = hr.clip(0, 220)
+    spo2 = spo2.clip(50, 100)
+    map_ = map_.clip(0, 180)
+    etco2 = etco2.clip(0, 80)
+
+    return pd.DataFrame(
+        {
+            "patient_id": patient_id,
+            "t": t.astype(int),
+            "HR": hr,
+            "SpO2": spo2,
+            "MAP": map_,
+            "EtCO2": etco2,
+            "event": event,
+        }
+    )
+
+
+def simulate_dataset(
+    n_patients: int,
+    duration_sec: int,
+    fs: int,
+    event_prob: float = 0.35,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """Concatena simulaciones de múltiples pacientes."""
+    rng = np.random.default_rng(seed)
+    frames = [
+        simulate_patient_signals(
+            patient_id=pid,
+            duration_sec=duration_sec,
+            fs=fs,
+            event_prob=event_prob,
+            rng=rng,
+        )
+        for pid in range(1, n_patients + 1)
+    ]
+    return pd.concat(frames, ignore_index=True)
+
 st.set_page_config(page_title="Predicción temprana de anomalías", layout="wide")
 
 st.markdown(
@@ -83,13 +183,52 @@ st.caption("Panel clínico de soporte para detección anticipada de eventos peri
 
 source = st.radio(
     "Fuente de datos",
-    options=["Subir CSV", "Usar CSV de ejemplo"],
+    options=["Subir CSV", "Usar CSV de ejemplo", "Simular"],
     horizontal=True,
 )
 
 data = None
 
-if source == "Subir CSV":
+if source == "Simular":
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        sim_duration = int(
+            st.number_input("duration_sec", min_value=120, max_value=7200, value=1800, step=60)
+        )
+    with col2:
+        sim_fs = int(st.number_input("fs", min_value=1, max_value=100, value=100, step=1))
+    with col3:
+        sim_n_patients = int(
+            st.number_input("n_pacientes", min_value=5, max_value=500, value=60, step=5)
+        )
+    with col4:
+        sim_event_prob = float(
+            st.number_input("event_prob", min_value=0.05, max_value=0.95, value=0.35, step=0.05)
+        )
+
+    if st.button("Simular dataset"):
+        try:
+            sim_df = simulate_dataset(
+                n_patients=sim_n_patients,
+                duration_sec=sim_duration,
+                fs=sim_fs,
+                event_prob=sim_event_prob,
+            )
+            st.session_state["simulated_df"] = sim_df
+            st.success(
+                f"Simulación creada: {sim_n_patients} pacientes, {sim_duration}s, fs={sim_fs}Hz."
+            )
+        except Exception as exc:
+            st.error(f"No se pudo simular el dataset: {exc}")
+            st.stop()
+
+    sim_df = st.session_state.get("simulated_df")
+    if sim_df is not None:
+        data = sim_df
+    else:
+        st.info("Configura duration_sec y fs, y pulsa Simular dataset.")
+        st.stop()
+elif source == "Subir CSV":
     uploaded_file = st.file_uploader("Sube un archivo CSV", type=["csv"])
     if uploaded_file is None:
         st.info("Esperando archivo CSV...")
@@ -128,7 +267,12 @@ st.subheader("Vista rápida del dataset")
 st.dataframe(data.head(20), width="stretch")
 
 columns = list(data.columns)
-default_target_index = columns.index("anomaly") if "anomaly" in columns else 0
+if "anomaly" in columns:
+    default_target_index = columns.index("anomaly")
+elif "event" in columns:
+    default_target_index = columns.index("event")
+else:
+    default_target_index = 0
 target_col = st.selectbox("Selecciona la columna objetivo", options=columns, index=default_target_index)
 
 st.subheader("Visualización de señales")
@@ -137,6 +281,8 @@ if "second" in data.columns:
     time_column = "second"
 elif "minute" in data.columns:
     time_column = "minute"
+elif "t" in data.columns:
+    time_column = "t"
 
 if "patient_id" in data.columns and time_column is not None:
     anomaly_column = "anomaly" if "anomaly" in data.columns else target_col

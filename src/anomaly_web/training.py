@@ -36,8 +36,10 @@ def _resolve_time_column(df, time_column: str | None) -> str:
             return "second"
         if "minute" in df.columns:
             return "minute"
+        if "t" in df.columns:
+            return "t"
         raise ValueError(
-            "Falta columna temporal. Se esperaba 'second' o 'minute' para ordenar las ventanas."
+            "Falta columna temporal. Se esperaba 'second', 'minute' o 't' para ordenar las ventanas."
         )
     if time_column not in df.columns:
         raise ValueError(f"Falta la columna temporal '{time_column}' para ordenar las ventanas.")
