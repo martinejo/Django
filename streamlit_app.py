@@ -11,7 +11,7 @@ from src.anomaly_web.config import MODEL_REGISTRY
 from src.anomaly_web.training import read_csv, train_and_evaluate
 
 EXAMPLES_DIR = Path(__file__).parent / "data" / "examples"
-BANNER_PATH = Path(__file__).parent / "assets" / "clinical_ai_banner.svg"
+BANNER_PATH = Path(__file__).parent / "Gemini_Generated_Image_vjzlxxvjzlxxvjzl.png"
 EXAMPLE_DATASETS = {
     "Hipotensión durante inducción": {
         "file": "hipotension_induccion.csv",
