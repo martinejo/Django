@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-import matplotlib.pyplot as plt
+import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -527,52 +527,41 @@ if train_result is not None:
                 x_max = float(np.max(x_pred))
 
             threshold = float(train_result.get("detection_threshold", detection_threshold))
-            fig = plt.figure(figsize=(12, 7), facecolor="#03131c")
+            prob_df = pd.DataFrame({"x": x_pred, "prob": pred_proba})
+            prob_df = prob_df[(prob_df["x"] >= x_min) & (prob_df["x"] <= x_max)]
 
-            ax1 = fig.add_axes([0.08, 0.56, 0.88, 0.36])
-            ax1.set_facecolor("#062433")
-            ax1.plot(
-                x_pred,
-                pred_proba,
-                color="#6aa7ff",
-                linewidth=2.2,
-                marker="x",
-                markersize=4,
-                label="P(evento en horizonte)",
+            event_span_df = pd.DataFrame(columns=["x_start", "x_end"])
+            if ev_start_x is not None and ev_end_x is not None:
+                event_span_df = pd.DataFrame([{"x_start": ev_start_x, "x_end": ev_end_x}])
+
+            alarm_df = pd.DataFrame({"x": x_alarm, "y": threshold})
+            if not alarm_df.empty:
+                alarm_df = alarm_df[(alarm_df["x"] >= x_min) & (alarm_df["x"] <= x_max)]
+
+            prob_base = alt.Chart(prob_df).encode(
+                x=alt.X("x:Q", title=xlabel, scale=alt.Scale(domain=[x_min, x_max]))
             )
-            ax1.fill_between(x_pred, pred_proba, alpha=0.22, color="#6aa7ff")
-            ax1.axhline(
-                threshold,
-                linestyle="--",
-                linewidth=2,
-                color="#f59e0b",
-                label=f"Threshold={threshold:.2f}",
+            prob_area = prob_base.mark_area(opacity=0.22, color="#6aa7ff").encode(
+                y=alt.Y("prob:Q", title="Probabilidad", scale=alt.Scale(domain=[0, 1]))
             )
-            if ev_start_x is not None:
-                ax1.axvspan(ev_start_x, ev_end_x, alpha=0.26, color="#2563eb", label="Evento real")
-            if len(x_alarm):
-                ax1.scatter(
-                    x_alarm,
-                    np.full_like(x_alarm, threshold),
-                    marker="^",
-                    s=80,
-                    color="#22c55e",
-                    label="Alarma",
-                )
-                for xa in x_alarm:
-                    ax1.axvline(xa, alpha=0.18, color="#22c55e", linewidth=2)
-            ax1.set_title("Streaming: probabilidad y alarmas", fontsize=13)
-            ax1.set_xlabel(xlabel)
-            ax1.set_ylabel("Probabilidad")
-            ax1.set_ylim(0, 1)
-            ax1.grid(alpha=0.22, color="#6b9fb4")
-            ax1.tick_params(colors="#9fe9ff")
-            ax1.xaxis.label.set_color("#9fe9ff")
-            ax1.yaxis.label.set_color("#9fe9ff")
-            ax1.title.set_color("#9fe9ff")
-            for spine in ax1.spines.values():
-                spine.set_color("#2b6d84")
-            ax1.legend(loc="upper left")
+            prob_line = prob_base.mark_line(color="#6aa7ff", strokeWidth=2).encode(
+                y=alt.Y("prob:Q", title="Probabilidad", scale=alt.Scale(domain=[0, 1]))
+            )
+            threshold_rule = alt.Chart(pd.DataFrame({"thr": [threshold]})).mark_rule(
+                color="#f59e0b", strokeDash=[8, 6], strokeWidth=2
+            ).encode(y=alt.Y("thr:Q", scale=alt.Scale(domain=[0, 1])))
+            event_rect = alt.Chart(event_span_df).mark_rect(color="#2563eb", opacity=0.22).encode(
+                x="x_start:Q",
+                x2="x_end:Q",
+            )
+            alarm_lines = alt.Chart(alarm_df).mark_rule(color="#22c55e", opacity=0.28).encode(x="x:Q")
+            alarm_points = alt.Chart(alarm_df).mark_point(
+                color="#22c55e", size=95, shape="triangle-up", filled=True
+            ).encode(x="x:Q", y="y:Q")
+            prob_chart = (
+                event_rect + prob_area + prob_line + threshold_rule + alarm_lines + alarm_points
+            ).properties(height=300, title="Streaming: probabilidad y alarmas")
+            st.altair_chart(prob_chart, use_container_width=True)
 
             metrics_lines = []
             if ev_start_x is not None:
@@ -588,19 +577,8 @@ if train_result is not None:
                 lt = selected_case["lead_time_seconds"] / 60.0
                 metrics_lines.append(f"Anticipación (lead time): {lt:.2f}min")
             metrics_lines.append(f"Falsas alarmas: {selected_case.get('false_alarm_count', 0)}")
-            ax1.text(
-                0.99,
-                0.02,
-                "\n".join(metrics_lines),
-                transform=ax1.transAxes,
-                ha="right",
-                va="bottom",
-                fontsize=10,
-                color="#b6f0ff",
-            )
+            st.caption(" | ".join(metrics_lines))
 
-            ax2 = fig.add_axes([0.08, 0.10, 0.88, 0.36])
-            ax2.set_facecolor("#062433")
             signal_palette = {
                 "hr": "#60a5fa",
                 "spo2": "#f59e0b",
@@ -611,28 +589,26 @@ if train_result is not None:
                 "MAP": "#34d399",
                 "EtCO2": "#f87171",
             }
-            for col in signal_cols:
-                ax2.plot(
-                    xx,
-                    patient_df[col].to_numpy(),
-                    label=col,
-                    linewidth=1.6,
-                    color=signal_palette.get(col, "#9fe9ff"),
-                )
-            if ev_start_x is not None:
-                ax2.axvspan(ev_start_x, ev_end_x, alpha=0.26, color="#2563eb")
-            ax2.set_title("Señales del paciente (inspección visual)", fontsize=13)
-            ax2.set_xlabel(xlabel)
-            ax2.set_ylabel("Valor (escalas distintas)")
-            ax2.grid(alpha=0.22, color="#6b9fb4")
-            ax2.tick_params(colors="#9fe9ff")
-            ax2.xaxis.label.set_color("#9fe9ff")
-            ax2.yaxis.label.set_color("#9fe9ff")
-            ax2.title.set_color("#9fe9ff")
-            for spine in ax2.spines.values():
-                spine.set_color("#2b6d84")
-            ax2.legend(loc="upper left", ncol=4)
-
-            ax1.set_xlim(x_min, x_max)
-            ax2.set_xlim(x_min, x_max)
-            st.pyplot(fig, clear_figure=True)
+            signal_df = patient_df[[time_column] + signal_cols].copy()
+            signal_df["x"] = xx
+            signal_df = signal_df[(signal_df["x"] >= x_min) & (signal_df["x"] <= x_max)]
+            signal_long = signal_df.melt(
+                id_vars=["x"], value_vars=signal_cols, var_name="signal", value_name="value"
+            )
+            color_range = [signal_palette.get(col, "#9fe9ff") for col in signal_cols]
+            signal_line = alt.Chart(signal_long).mark_line(strokeWidth=2).encode(
+                x=alt.X("x:Q", title=xlabel, scale=alt.Scale(domain=[x_min, x_max])),
+                y=alt.Y("value:Q", title="Valor (escalas distintas)"),
+                color=alt.Color(
+                    "signal:N",
+                    scale=alt.Scale(domain=signal_cols, range=color_range),
+                    title="Señales",
+                ),
+            )
+            signal_event_rect = alt.Chart(event_span_df).mark_rect(
+                color="#2563eb", opacity=0.22
+            ).encode(x="x_start:Q", x2="x_end:Q")
+            signal_chart = (signal_event_rect + signal_line).properties(
+                height=320, title="Señales del paciente (inspección visual)"
+            )
+            st.altair_chart(signal_chart, use_container_width=True)
