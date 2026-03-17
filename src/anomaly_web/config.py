@@ -21,7 +21,12 @@ MODEL_REGISTRY: dict[str, ModelSpec] = {
         key="random_forest",
         display_name="Random Forest",
         sklearn_class="ensemble.RandomForestClassifier",
-        defaults={"n_estimators": 200, "max_depth": 10, "random_state": 42},
+        defaults={
+            "n_estimators": 120,
+            "max_depth": 10,
+            "random_state": 42,
+            "n_jobs": -1,
+        },
     ),
     "gradient_boosting": ModelSpec(
         key="gradient_boosting",

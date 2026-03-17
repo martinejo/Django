@@ -352,6 +352,13 @@ else:
     )
 
 st.subheader("Configuración de entrenamiento por ventana")
+dataset_fs = 1
+if "fs" in data.columns:
+    fs_values = pd.to_numeric(data["fs"], errors="coerce").dropna()
+    if not fs_values.empty:
+        dataset_fs = max(1, int(fs_values.iloc[0]))
+default_stride = max(5, min(120, dataset_fs))
+
 window_size = st.number_input(
     "tam_ventana (muestras por ventana)",
     min_value=2,
@@ -364,6 +371,13 @@ prediction_horizon = st.number_input(
     min_value=1,
     max_value=120,
     value=3,
+    step=1,
+)
+stride_samples = st.number_input(
+    "stride_muestras (salto entre ventanas)",
+    min_value=1,
+    max_value=120,
+    value=default_stride,
     step=1,
 )
 detection_threshold = st.number_input(
@@ -394,6 +408,12 @@ model_key = st.selectbox(
     format_func=lambda key: MODEL_REGISTRY[key].display_name,
 )
 
+if model_key == "random_forest" and len(data) > 400_000:
+    st.caption(
+        "Dataset grande detectado: para acelerar Random Forest usa "
+        "`stride_muestras` igual o mayor que `fs`."
+    )
+
 default_params = MODEL_REGISTRY[model_key].defaults
 params_text = st.text_area(
     "Hiperparámetros (dict Python)",
@@ -419,6 +439,7 @@ if st.button("Entrenar"):
                 hyperparams=user_params,
                 window_size=int(window_size),
                 prediction_horizon=int(prediction_horizon),
+                stride=int(stride_samples),
                 detection_threshold=float(detection_threshold),
                 alarm_min_consecutive=int(alarm_min_consecutive),
                 alarm_refractory=int(alarm_refractory),
@@ -436,6 +457,7 @@ if train_result is not None:
     st.metric("Ventanas usadas", f"{train_result['num_windows']}")
     st.metric("Tasa positiva", f"{train_result['positive_rate']:.2%}")
     st.metric("Umbral detección", f"{train_result.get('detection_threshold', 0.35):.2f}")
+    st.metric("Stride", f"{train_result.get('stride', 1)}")
     st.text("Classification report")
     st.code(train_result["report"])
 

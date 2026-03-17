@@ -53,6 +53,8 @@ def _patient_window_arrays(
     time_column: str,
     window_size: int,
     prediction_horizon: int,
+    stride: int = 1,
+    include_windows: bool = True,
 ):
     """Construye ventanas de un paciente y sus etiquetas."""
     y_event = group_sorted[target_column].to_numpy(dtype=np.int8)
@@ -63,7 +65,7 @@ def _patient_window_arrays(
     if n < window_size + 1:
         return None
 
-    window_end_idx = np.arange(window_size - 1, n)
+    window_end_idx = np.arange(window_size - 1, n, stride)
 
     next_event_idx = np.full(n, np.inf)
     next_pos = np.inf
@@ -75,9 +77,13 @@ def _patient_window_arrays(
     distances = next_event_idx[window_end_idx] - window_end_idx
     labels = ((distances >= 1) & (distances <= prediction_horizon)).astype(np.int8)
 
-    windows = np.lib.stride_tricks.sliding_window_view(
-        x_signal, window_shape=window_size, axis=0
-    ).reshape(-1, window_size * len(signal_columns))
+    windows = None
+    if include_windows:
+        all_windows = np.lib.stride_tricks.sliding_window_view(
+            x_signal, window_shape=window_size, axis=0
+        ).reshape(-1, window_size * len(signal_columns))
+        row_idx = window_end_idx - (window_size - 1)
+        windows = all_windows[row_idx]
     window_end_time = time_values[window_end_idx]
 
     return windows, labels, window_end_time
@@ -92,6 +98,7 @@ def _build_window_dataset(
     time_column: str | None = None,
     max_windows: int = 250_000,
     random_state: int = 42,
+    stride: int = 1,
 ):
     """Transforma series por paciente en ejemplos de ventana deslizante con muestreo."""
     if target_column not in df.columns:
@@ -106,6 +113,8 @@ def _build_window_dataset(
         raise ValueError("tam_ventana debe ser >= 2.")
     if prediction_horizon < 1:
         raise ValueError("horizonte_prediccion debe ser >= 1.")
+    if stride < 1:
+        raise ValueError("stride_muestras debe ser >= 1.")
 
     excluded = {patient_id_column, time_column, target_column}
     signal_columns = [
@@ -127,6 +136,8 @@ def _build_window_dataset(
             time_column=time_column,
             window_size=window_size,
             prediction_horizon=prediction_horizon,
+            stride=stride,
+            include_windows=False,
         )
         if result is None:
             continue
@@ -159,6 +170,7 @@ def _build_window_dataset(
             time_column=time_column,
             window_size=window_size,
             prediction_horizon=prediction_horizon,
+            stride=stride,
         )
         if result is None:
             continue
@@ -210,6 +222,7 @@ def train_and_evaluate(
     detection_threshold: float = 0.35,
     alarm_min_consecutive: int = 2,
     alarm_refractory: int = 10,
+    stride: int = 1,
 ):
     """Entrena un modelo por ventanas y devuelve métricas de clasificación."""
     from sklearn.metrics import accuracy_score, classification_report
@@ -233,21 +246,31 @@ def train_and_evaluate(
     train_df = df[df["patient_id"].isin(train_patients)].copy()
     test_df = df[df["patient_id"].isin(test_patients)].copy()
 
+    train_max_windows = 220_000
+    test_max_windows = 80_000
+    if model_key == "random_forest":
+        # RandomForest con ventanas largas puede volverse muy pesado en VPS.
+        # Reducimos muestra para mantener tiempos de entrenamiento razonables.
+        train_max_windows = 70_000
+        test_max_windows = 25_000
+
     x_train, y_train, signal_columns, _, time_column = _build_window_dataset(
         df=train_df,
         target_column=target_column,
         window_size=window_size,
         prediction_horizon=prediction_horizon,
-        max_windows=220_000,
+        max_windows=train_max_windows,
         random_state=42,
+        stride=stride,
     )
     x_test, y_test, _, _, _ = _build_window_dataset(
         df=test_df,
         target_column=target_column,
         window_size=window_size,
         prediction_horizon=prediction_horizon,
-        max_windows=80_000,
+        max_windows=test_max_windows,
         random_state=43,
+        stride=stride,
     )
     model = build_model(model_key, hyperparams)
     model.fit(x_train, y_train)
@@ -280,6 +303,7 @@ def train_and_evaluate(
             time_column=time_column,
             window_size=window_size,
             prediction_horizon=prediction_horizon,
+            stride=stride,
         )
         if patient_windows is None:
             continue
@@ -373,6 +397,7 @@ def train_and_evaluate(
         "detection_threshold": detection_threshold,
         "alarm_min_consecutive": int(alarm_min_consecutive),
         "alarm_refractory": int(alarm_refractory),
+        "stride": int(stride),
         "time_column": time_column,
         "test_patient_summaries": event_case_summaries,
         "test_patient_payloads": test_patient_payloads,
