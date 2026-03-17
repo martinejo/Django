@@ -12,6 +12,7 @@ Este repositorio contiene una **base inicial** para construir una aplicación we
 - `src/anomaly_web/config.py`: catálogo de modelos y validación de hiperparámetros.
 - `src/anomaly_web/training.py`: utilidades de carga de datos, entrenamiento y métricas.
 - `streamlit_app.py`: interfaz web para subir CSV, elegir modelo e hiperparámetros.
+- `data/examples/`: CSV simulados para probar la app sin subir archivos propios.
 - `deploy/`: plantillas de servicio y script de despliegue en VPS.
 - `tests/`: pruebas unitarias de validación de configuración.
 
@@ -36,6 +37,16 @@ streamlit run streamlit_app.py
 
 - Columnas de entrada: señales (ejemplo: `hr`, `spo2`, `map`, etc.).
 - Columna objetivo binaria/multiclase: definida por el usuario en la app.
+
+## CSV de ejemplo incluidos
+
+Desde la interfaz puedes elegir `Usar CSV de ejemplo` y pulsar `Cargar CSV de ejemplo`.
+
+- `hipotension_induccion.csv`: episodio de caída de MAP durante inducción anestésica.
+- `hipoxemia_ventilacion.csv`: descenso transitorio de SpO2 con cambios respiratorios.
+- `evento_mixto_hemodinamico.csv`: inestabilidad combinada (FC/MAP/BIS).
+
+Todos incluyen señales típicas de quirófano (`hr`, `spo2`, `map`, `etco2`, `rr`, `bis`) y columna `anomaly` para detección.
 
 ## Despliegue en VPS (sin dominio)
 
