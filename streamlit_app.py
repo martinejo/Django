@@ -99,7 +99,8 @@ def simulate_patient_signals(
     return pd.DataFrame(
         {
             "patient_id": patient_id,
-            "t": t.astype(int),
+            "t": np.round(t, 3),
+            "fs": fs,
             "HR": hr,
             "SpO2": spo2,
             "MAP": map_,
@@ -334,8 +335,9 @@ if "patient_id" in data.columns and time_column is not None:
                 f"Ventana mostrada: de {start_t}s a {end_t}s respecto al evento en {event_time}s."
             )
         else:
-            patient_df = patient_df_full.head(180)
-            st.caption("Paciente sin evento: se muestran 180 segundos iniciales como referencia.")
+            fs_ref = int(patient_df_full["fs"].iloc[0]) if "fs" in patient_df_full.columns else 1
+            patient_df = patient_df_full.head(180 * fs_ref)
+            st.caption("Paciente sin evento: se muestran hasta 180 segundos iniciales como referencia.")
 
         st.line_chart(
             patient_df.set_index(time_column)[selected_signals],
