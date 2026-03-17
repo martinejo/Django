@@ -205,6 +205,7 @@ def train_and_evaluate(
     hyperparams: dict[str, Any] | None = None,
     window_size: int = 5,
     prediction_horizon: int = 3,
+    detection_threshold: float = 0.35,
 ):
     """Entrena un modelo por ventanas y devuelve métricas de clasificación."""
     from sklearn.metrics import accuracy_score, classification_report
@@ -228,7 +229,7 @@ def train_and_evaluate(
     train_df = df[df["patient_id"].isin(train_patients)].copy()
     test_df = df[df["patient_id"].isin(test_patients)].copy()
 
-    x_train, y_train, signal_columns, train_meta, time_column = _build_window_dataset(
+    x_train, y_train, signal_columns, _, time_column = _build_window_dataset(
         df=train_df,
         target_column=target_column,
         window_size=window_size,
@@ -236,7 +237,7 @@ def train_and_evaluate(
         max_windows=220_000,
         random_state=42,
     )
-    x_test, y_test, _, test_meta, _ = _build_window_dataset(
+    x_test, y_test, _, _, _ = _build_window_dataset(
         df=test_df,
         target_column=target_column,
         window_size=window_size,
@@ -253,10 +254,8 @@ def train_and_evaluate(
     else:
         y_prob = y_pred.astype(float)
 
-    test_predictions = test_meta.copy()
-    test_predictions["true_label"] = y_test.astype(int)
-    test_predictions["pred_label"] = y_pred.astype(int)
-    test_predictions["pred_prob"] = y_prob.astype(float)
+    detection_threshold = float(detection_threshold)
+    detection_threshold = min(0.99, max(0.01, detection_threshold))
 
     event_case_summaries = []
     event_case_timelines: dict[str, list[dict[str, Any]]] = {}
@@ -281,7 +280,11 @@ def train_and_evaluate(
         if patient_windows is None:
             continue
         patient_x, _, patient_window_end_time = patient_windows
-        patient_pred = model.predict(patient_x).astype(int)
+        if hasattr(model, "predict_proba"):
+            patient_prob = model.predict_proba(patient_x)[:, 1]
+            patient_pred = (patient_prob >= detection_threshold).astype(int)
+        else:
+            patient_pred = model.predict(patient_x).astype(int)
 
         before_event_mask = patient_window_end_time < event_time
         detections = patient_window_end_time[(patient_pred == 1) & before_event_mask]
@@ -320,4 +323,5 @@ def train_and_evaluate(
         "event_case_timelines": event_case_timelines,
         "window_size": int(window_size),
         "prediction_horizon": int(prediction_horizon),
+        "detection_threshold": detection_threshold,
     }

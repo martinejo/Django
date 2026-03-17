@@ -215,6 +215,13 @@ prediction_horizon = st.number_input(
     value=3,
     step=1,
 )
+detection_threshold = st.number_input(
+    "umbral_deteccion (0-1, menor = más sensible)",
+    min_value=0.05,
+    max_value=0.95,
+    value=0.35,
+    step=0.05,
+)
 
 model_key = st.selectbox(
     "Modelo",
@@ -247,6 +254,7 @@ if st.button("Entrenar"):
                 hyperparams=user_params,
                 window_size=int(window_size),
                 prediction_horizon=int(prediction_horizon),
+                detection_threshold=float(detection_threshold),
             )
         except Exception as exc:
             st.error(f"Error durante entrenamiento: {exc}")
@@ -260,6 +268,7 @@ if train_result is not None:
     st.metric("Accuracy", f"{train_result['accuracy']:.4f}")
     st.metric("Ventanas usadas", f"{train_result['num_windows']}")
     st.metric("Tasa positiva", f"{train_result['positive_rate']:.2%}")
+    st.metric("Umbral detección", f"{train_result.get('detection_threshold', 0.35):.2f}")
     st.text("Classification report")
     st.code(train_result["report"])
 
@@ -363,7 +372,7 @@ if train_result is not None:
                 )
                 chart = band_layer + line_layer
 
-            st.altair_chart(chart.properties(height=460), width="stretch")
+            st.altair_chart(chart.properties(height=460), use_container_width=True)
 
         timeline_rows = train_result.get("event_case_timelines", {}).get(str(selected_patient), [])
         if timeline_rows:
@@ -423,4 +432,4 @@ if train_result is not None:
                 ),
                 opacity=alt.Opacity("opacity:Q", legend=None),
             )
-            st.altair_chart((tl_band + tl_line).properties(height=260), width="stretch")
+            st.altair_chart((tl_band + tl_line).properties(height=260), use_container_width=True)
