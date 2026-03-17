@@ -507,8 +507,8 @@ if train_result is not None:
                 xlabel = "Tiempo (minutos)"
                 ev_start_x = None if ev_start_t is None else ev_start_t / 60.0
                 ev_end_x = None if ev_end_t is None else ev_end_t / 60.0
-                margin_before = 180 / 60.0
-                margin_after = 180 / 60.0
+                margin_before = 120 / 60.0
+                margin_after = 30 / 60.0
             else:
                 x_pred = pred_times
                 x_alarm = alarm_times if len(alarm_times) else np.array([])
@@ -516,15 +516,15 @@ if train_result is not None:
                 xlabel = "Tiempo (segundos)"
                 ev_start_x = ev_start_t
                 ev_end_x = ev_end_t
-                margin_before = 180
-                margin_after = 180
+                margin_before = 120
+                margin_after = 30
 
             if ev_start_x is not None:
-                x_min = max(float(np.min(x_pred)), ev_start_x - margin_before)
-                x_max = min(float(np.max(x_pred)), ev_end_x + margin_after)
+                x_min = max(float(np.min(xx)), ev_start_x - margin_before)
+                x_max = min(float(np.max(xx)), ev_start_x + margin_after)
             else:
-                x_min = float(np.min(x_pred))
-                x_max = float(np.max(x_pred))
+                x_min = float(np.min(xx))
+                x_max = float(np.max(xx))
 
             threshold = float(train_result.get("detection_threshold", detection_threshold))
             prob_df = pd.DataFrame({"x": x_pred, "prob": pred_proba})
