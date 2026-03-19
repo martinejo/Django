@@ -28,6 +28,10 @@ from src.anomaly_web.user_store import (
 EXAMPLES_DIR = Path(__file__).parent / "data" / "examples"
 BANNER_PATH = Path(__file__).parent / "Gemini_Generated_Image_vjzlxxvjzlxxvjzl.png"
 LOGIN_BG_PATH = Path(__file__).parent / "56cba10a-428e-410d-ae50-7dc9d011b620.jpg"
+LOGIN_BG_URL = (
+    "https://raw.githubusercontent.com/martinejo/Django/"
+    "codex/add-web-project-for-anomaly-prediction/56cba10a-428e-410d-ae50-7dc9d011b620.jpg"
+)
 APP_ROOT = Path(__file__).parent
 EXAMPLE_DATASETS = {
     "Hipotensión durante inducción": {
@@ -256,17 +260,17 @@ if "auth_user" not in st.session_state:
     st.session_state["auth_user"] = None
 
 if st.session_state["auth_user"] is None:
-    bg_data_uri = ""
+    bg_source = LOGIN_BG_URL
     if LOGIN_BG_PATH.exists():
         encoded = base64.b64encode(LOGIN_BG_PATH.read_bytes()).decode("ascii")
-        bg_data_uri = f"data:image/jpeg;base64,{encoded}"
+        bg_source = f"data:image/jpeg;base64,{encoded}"
 
     login_css = f"""
         <style>
         .stApp {{
             background:
                 linear-gradient(135deg, rgba(10,16,24,0.74), rgba(6,10,16,0.84)),
-                url('{bg_data_uri}') center center / cover no-repeat !important;
+                url('{bg_source}') center center / cover no-repeat !important;
             min-height: 100vh;
         }}
         [data-testid="stSidebar"] {{ display: none !important; }}
