@@ -867,12 +867,22 @@ st.caption(
     f"horizonte={prediction_horizon_samples} muestras."
 )
 
-model_mode = st.radio(
-    "Flujo de modelo",
-    options=["Modelo nuevo", "Modelo guardado"],
-    horizontal=True,
-    key="model_mode_tab",
-)
+if "model_mode_tab" not in st.session_state:
+    st.session_state["model_mode_tab"] = None
+
+st.markdown("### Flujo de modelo")
+st.caption("Selecciona una opción para mostrar su panel.")
+mode_col1, mode_col2 = st.columns(2)
+with mode_col1:
+    if st.button("Modelo nuevo", key="btn_model_mode_new", use_container_width=True):
+        st.session_state["model_mode_tab"] = "Modelo nuevo"
+with mode_col2:
+    if st.button("Modelo guardado", key="btn_model_mode_saved", use_container_width=True):
+        st.session_state["model_mode_tab"] = "Modelo guardado"
+
+model_mode = st.session_state.get("model_mode_tab")
+if model_mode is None:
+    st.info("Pulsa `Modelo nuevo` o `Modelo guardado` para continuar.")
 
 hyperparams_inputs: dict[str, str] = {}
 if model_mode == "Modelo nuevo":
