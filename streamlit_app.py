@@ -270,7 +270,31 @@ if st.session_state["auth_user"] is None:
             min-height: 100vh;
         }}
         [data-testid="stSidebar"] {{ display: none !important; }}
-        .block-container {{ max-width: 1180px; padding-top: 2.4rem; padding-bottom: 2rem; }}
+        .block-container {{
+            max-width: 1180px;
+            padding-top: 2.4rem;
+            padding-bottom: 2rem;
+            position: relative;
+        }}
+        .block-container::before {{
+            content: "";
+            position: absolute;
+            left: 50%;
+            top: 24px;
+            transform: translateX(-50%);
+            width: min(520px, 92vw);
+            height: min(840px, calc(100vh - 48px));
+            background: linear-gradient(165deg, rgba(8,49,89,0.58), rgba(4,29,58,0.58));
+            border: 1.5px solid rgba(114, 202, 255, 0.65);
+            border-radius: 24px;
+            box-shadow: 0 24px 56px rgba(0,0,0,0.42);
+            backdrop-filter: blur(1.5px);
+            z-index: 0;
+        }}
+        .block-container > div {{
+            position: relative;
+            z-index: 1;
+        }}
         .login-title {{
             text-align: center;
             color: #edf2f8 !important;
