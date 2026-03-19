@@ -333,21 +333,7 @@ if st.session_state["auth_user"] is None:
             overflow: hidden !important;
             align-items: stretch !important;
         }}
-        div[data-testid="stForm"] .stTextInput button {{
-            width: 78px !important;
-            min-width: 78px !important;
-            height: auto !important;
-            min-height: 100% !important;
-            align-self: stretch !important;
-            border-radius: 0 !important;
-            padding: 0 !important;
-            margin: 0 !important;
-            background: #2a90e3 !important;
-        }}
-        div[data-testid="stForm"] .stTextInput button svg {{
-            width: 16px !important;
-            height: 16px !important;
-        }}
+        div[data-testid="stForm"] .stTextInput button {{ display: none !important; }}
         div[data-testid="stForm"] button {{
             width: 100%;
             background: #2a90e3 !important;
