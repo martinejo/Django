@@ -276,18 +276,20 @@ if st.session_state["auth_user"] is None:
         [data-testid="stSidebar"] {{ display: none !important; }}
         .block-container {{
             max-width: 1180px;
-            padding-top: 2.4rem;
-            padding-bottom: 2rem;
+            padding-top: 8vh;
+            padding-bottom: 8vh;
             position: relative;
+            min-height: 100vh;
+            box-sizing: border-box;
         }}
         .block-container::before {{
             content: "";
             position: absolute;
             left: 50%;
-            top: 24px;
-            transform: translateX(-50%);
+            top: 50%;
+            transform: translate(-50%, -50%);
             width: min(520px, 92vw);
-            height: min(840px, calc(100vh - 48px));
+            height: min(840px, 82vh);
             background: linear-gradient(165deg, rgba(8,49,89,0.58), rgba(4,29,58,0.58));
             border: 1.5px solid rgba(114, 202, 255, 0.65);
             border-radius: 24px;
