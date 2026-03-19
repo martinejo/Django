@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import base64
 from collections import deque
 from pathlib import Path
 import time
@@ -26,6 +27,7 @@ from src.anomaly_web.user_store import (
 
 EXAMPLES_DIR = Path(__file__).parent / "data" / "examples"
 BANNER_PATH = Path(__file__).parent / "Gemini_Generated_Image_vjzlxxvjzlxxvjzl.png"
+LOGIN_BG_PATH = Path(__file__).parent / "56cba10a-428e-410d-ae50-7dc9d011b620.jpg"
 APP_ROOT = Path(__file__).parent
 EXAMPLE_DATASETS = {
     "Hipotensión durante inducción": {
@@ -254,66 +256,78 @@ if "auth_user" not in st.session_state:
     st.session_state["auth_user"] = None
 
 if st.session_state["auth_user"] is None:
-    st.markdown(
-        """
+    bg_data_uri = ""
+    if LOGIN_BG_PATH.exists():
+        encoded = base64.b64encode(LOGIN_BG_PATH.read_bytes()).decode("ascii")
+        bg_data_uri = f"data:image/jpeg;base64,{encoded}"
+
+    login_css = f"""
         <style>
-        .stApp {
+        .stApp {{
             background:
-                linear-gradient(135deg, rgba(22,22,24,0.92), rgba(9,10,14,0.96)),
-                repeating-linear-gradient(60deg, rgba(255,255,255,0.03) 0px, rgba(255,255,255,0.03) 2px, transparent 2px, transparent 120px),
-                repeating-linear-gradient(-30deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 2px, transparent 2px, transparent 145px) !important;
+                linear-gradient(135deg, rgba(10,16,24,0.74), rgba(6,10,16,0.84)),
+                url('{bg_data_uri}') center center / cover no-repeat !important;
             min-height: 100vh;
-        }
-        [data-testid="stSidebar"] { display: none !important; }
-        .block-container { max-width: 1180px; padding-top: 3.2rem; padding-bottom: 2rem; }
-        .login-title {
+        }}
+        [data-testid="stSidebar"] {{ display: none !important; }}
+        .block-container {{ max-width: 1180px; padding-top: 2.4rem; padding-bottom: 2rem; }}
+        .login-title {{
             text-align: center;
             color: #edf2f8 !important;
             letter-spacing: 0.24rem;
             font-size: 2.0rem;
             margin-bottom: 1.3rem;
             font-weight: 500;
-        }
-        div[data-testid="stForm"] {
-            background: rgba(248, 250, 253, 0.97);
-            border-top: 4px solid #1e73d8;
-            border-radius: 10px;
-            padding: 18px 18px 10px 18px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.36);
-        }
+        }}
+        div[data-testid="stForm"] {{
+            background: linear-gradient(160deg, rgba(9,54,95,0.97), rgba(5,33,62,0.97));
+            border: 1px solid rgba(130, 202, 255, 0.35);
+            border-radius: 18px;
+            padding: 22px 20px 14px 20px;
+            box-shadow: 0 24px 48px rgba(0,0,0,0.42);
+        }}
         div[data-testid="stForm"] label,
         div[data-testid="stForm"] .stMarkdown,
-        div[data-testid="stForm"] p {
-            color: #2f3a4a !important;
-        }
-        div[data-testid="stForm"] .stTextInput input {
+        div[data-testid="stForm"] p {{
+            color: #e4f4ff !important;
+        }}
+        div[data-testid="stForm"] .stTextInput input {{
             background: #ffffff !important;
             color: #0f172a !important;
-            border: 1px solid #b8c2d0 !important;
-            border-radius: 6px !important;
-        }
-        div[data-testid="stForm"] button {
+            border: 1px solid #78b7e9 !important;
+            border-radius: 10px !important;
+        }}
+        div[data-testid="stForm"] button {{
             width: 100%;
-            background: #1565c0 !important;
+            background: #2a90e3 !important;
             color: #ffffff !important;
-            border-radius: 6px !important;
+            border-radius: 10px !important;
             border: none !important;
             font-weight: 600 !important;
-        }
-        div[data-testid="stForm"] button:hover { background: #0d4f9b !important; }
-        .login-note {
+        }}
+        div[data-testid="stForm"] button:hover {{ background: #1b7bcc !important; }}
+        .login-note {{
             text-align: center;
             color: #e7edf7 !important;
             margin-bottom: 0.8rem;
             font-size: 1.08rem;
-        }
+        }}
+        .login-badge {{
+            text-align: center;
+            color: #bfe7ff !important;
+            margin-top: 0.45rem;
+            margin-bottom: 0.6rem;
+            font-size: 0.95rem;
+        }}
         </style>
-        """,
-        unsafe_allow_html=True,
-    )
+        """
+    st.markdown(login_css, unsafe_allow_html=True)
     st.markdown("<div class='login-title'>ESTIMAMODELOS LOGIN</div>", unsafe_allow_html=True)
     col_l, col_c, col_r = st.columns([1.25, 1.1, 1.25])
     with col_c:
+        if BANNER_PATH.exists():
+            st.image(str(BANNER_PATH), width="stretch")
+        st.markdown("<div class='login-badge'>Inteligencia artificial clínica para detección temprana</div>", unsafe_allow_html=True)
         st.markdown(
             "<div class='login-note'>Inicia sesión o crea tu cuenta para acceder a tu panel personal</div>",
             unsafe_allow_html=True,
