@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 
 import altair as alt
@@ -402,41 +401,26 @@ alarm_refractory = st.number_input(
     step=1,
 )
 
-model_key = st.selectbox(
-    "Modelo",
-    options=list(MODEL_REGISTRY.keys()),
-    format_func=lambda key: MODEL_REGISTRY[key].display_name,
-)
-
-if model_key == "random_forest" and len(data) > 400_000:
+if len(data) > 400_000:
     st.caption(
-        "Dataset grande detectado: para acelerar Random Forest usa "
+        "Dataset grande detectado: para acelerar entrenamiento usa "
         "`stride_muestras` igual o mayor que `fs`."
     )
 
-default_params = MODEL_REGISTRY[model_key].defaults
-params_text = st.text_area(
-    "Hiperparámetros (dict Python)",
-    value=str(default_params),
-    height=180,
-)
+if st.button("Entrenar todos los modelos"):
+    all_results: dict[str, dict] = {}
+    train_errors: dict[str, str] = {}
+    model_keys = list(MODEL_REGISTRY.keys())
+    progress = st.progress(0.0)
 
-if st.button("Entrenar"):
-    try:
-        user_params = ast.literal_eval(params_text)
-        if not isinstance(user_params, dict):
-            raise ValueError("Debe ser un diccionario.")
-    except Exception as exc:
-        st.error(f"Hiperparámetros inválidos: {exc}")
-        st.stop()
-
-    with st.spinner("Entrenando modelo..."):
+    for idx, key in enumerate(model_keys, start=1):
+        model_name = MODEL_REGISTRY[key].display_name
         try:
             result = train_and_evaluate(
                 df=data,
                 target_column=target_col,
-                model_key=model_key,
-                hyperparams=user_params,
+                model_key=key,
+                hyperparams=dict(MODEL_REGISTRY[key].defaults),
                 window_size=int(window_size),
                 prediction_horizon=int(prediction_horizon),
                 stride=int(stride_samples),
@@ -444,14 +428,69 @@ if st.button("Entrenar"):
                 alarm_min_consecutive=int(alarm_min_consecutive),
                 alarm_refractory=int(alarm_refractory),
             )
+            all_results[key] = result
         except Exception as exc:
-            st.error(f"Error durante entrenamiento: {exc}")
-            st.stop()
+            train_errors[key] = str(exc)
+        progress.progress(idx / len(model_keys), text=f"Entrenando {model_name} ({idx}/{len(model_keys)})")
 
-    st.session_state["train_result"] = result
-    st.success("Entrenamiento completado")
+    st.session_state["train_results_by_model"] = all_results
+    st.session_state["train_errors_by_model"] = train_errors
 
-train_result = st.session_state.get("train_result")
+    if all_results:
+        st.success(f"Entrenamiento completado en {len(all_results)} modelo(s).")
+    if train_errors:
+        st.warning("Algunos modelos fallaron en entrenamiento.")
+
+train_results_by_model = st.session_state.get("train_results_by_model", {})
+train_errors_by_model = st.session_state.get("train_errors_by_model", {})
+train_result = None
+
+if train_results_by_model:
+    st.subheader("Comparativa de modelos")
+    comparison_rows = []
+    for key, result in train_results_by_model.items():
+        metrics = result.get("patient_level_metrics", {})
+        min_early = metrics.get("patient_min_early_detection") or {}
+        max_early = metrics.get("patient_max_early_detection") or {}
+        comparison_rows.append(
+            {
+                "Modelo": MODEL_REGISTRY[key].display_name,
+                "Pacientes detectados": metrics.get("patients_detected", 0),
+                "Detectados antes del evento": metrics.get("patients_detected_pre_event", 0),
+                "Tiempo medio detección temprana (s)": metrics.get("early_lead_time_mean_seconds"),
+                "Paciente menor tiempo detección": (
+                    f"{min_early.get('patient_id')} ({min_early.get('lead_time_seconds')}s)"
+                    if min_early
+                    else "N/A"
+                ),
+                "Paciente mayor tiempo detección": (
+                    f"{max_early.get('patient_id')} ({max_early.get('lead_time_seconds')}s)"
+                    if max_early
+                    else "N/A"
+                ),
+            }
+        )
+    comparison_df = pd.DataFrame(comparison_rows).sort_values(
+        by=["Detectados antes del evento", "Pacientes detectados"],
+        ascending=[False, False],
+    )
+    st.dataframe(comparison_df, width="stretch", hide_index=True)
+
+    selected_model_key = st.selectbox(
+        "Modelo para visualizar predicción por paciente",
+        options=list(train_results_by_model.keys()),
+        format_func=lambda key: MODEL_REGISTRY[key].display_name,
+    )
+    train_result = train_results_by_model[selected_model_key]
+    st.caption(f"Análisis detallado activo: {MODEL_REGISTRY[selected_model_key].display_name}")
+
+if train_errors_by_model:
+    error_lines = [
+        f"- {MODEL_REGISTRY[key].display_name}: {msg}"
+        for key, msg in train_errors_by_model.items()
+    ]
+    st.caption("Errores de entrenamiento:\n" + "\n".join(error_lines))
+
 if train_result is not None:
     st.metric("Accuracy", f"{train_result['accuracy']:.4f}")
     st.metric("Ventanas usadas", f"{train_result['num_windows']}")
@@ -464,13 +503,17 @@ if train_result is not None:
     patient_metrics = train_result.get("patient_level_metrics")
     if patient_metrics:
         st.subheader("Resultados por paciente")
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         c1.metric("Pacientes con evento", f"{patient_metrics.get('patients_with_event', 0)}")
         c2.metric("Pacientes detectados", f"{patient_metrics.get('patients_detected', 0)}")
         sens_value = patient_metrics.get("sensitivity_by_patient")
         c3.metric(
             "Sensibilidad por paciente",
             f"{sens_value:.2%}" if sens_value is not None else "N/A",
+        )
+        c4.metric(
+            "Detectados antes evento",
+            f"{patient_metrics.get('patients_detected_pre_event', 0)}",
         )
 
         st.caption(
@@ -496,6 +539,10 @@ if train_result is not None:
             st.write(
                 "% detectados con > horizonte: "
                 f"{patient_metrics.get('pct_detected_gt_horizon', 0):.2f}%"
+            )
+            st.write(
+                "Lead time temprano medio (solo anticipaciones positivas): "
+                f"{patient_metrics.get('early_lead_time_mean_seconds', 0) or 0:.2f} s"
             )
         else:
             st.write("No hay detecciones con lead time calculable en este entrenamiento.")

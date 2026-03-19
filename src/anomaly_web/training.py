@@ -395,6 +395,12 @@ def train_and_evaluate(
         for case in detected_event_cases
         if case["lead_time_seconds"] is not None
     ]
+    early_detected_event_cases = [
+        case
+        for case in detected_event_cases
+        if case["lead_time_seconds"] is not None and int(case["lead_time_seconds"]) > 0
+    ]
+    early_lead_times_seconds = [int(case["lead_time_seconds"]) for case in early_detected_event_cases]
     false_alarm_counts_no_event = [
         int(case["false_alarm_count"])
         for case in event_case_summaries
@@ -409,6 +415,11 @@ def train_and_evaluate(
         if len(lead_times_seconds) > 0
         else np.asarray([], dtype=np.float32)
     )
+    early_lead_times_np = (
+        np.asarray(early_lead_times_seconds, dtype=np.float32)
+        if len(early_lead_times_seconds) > 0
+        else np.asarray([], dtype=np.float32)
+    )
     false_alarm_avg_no_event = (
         float(np.mean(false_alarm_counts_no_event))
         if len(false_alarm_counts_no_event) > 0
@@ -418,13 +429,44 @@ def train_and_evaluate(
     patient_level_metrics = {
         "patients_with_event": int(patients_with_event),
         "patients_detected": int(patients_detected),
+        "patients_detected_pre_event": int(len(early_detected_event_cases)),
         "sensitivity_by_patient": sensitivity_by_patient,
         "expected_prediction_horizon": int(prediction_horizon),
         "lead_times_seconds": [int(v) for v in lead_times_seconds],
+        "early_lead_times_seconds": [int(v) for v in early_lead_times_seconds],
         "lead_time_mean_seconds": float(lead_times_np.mean()) if lead_times_np.size else None,
+        "early_lead_time_mean_seconds": (
+            float(early_lead_times_np.mean()) if early_lead_times_np.size else None
+        ),
         "lead_time_median_seconds": float(np.median(lead_times_np)) if lead_times_np.size else None,
         "lead_time_min_seconds": int(lead_times_np.min()) if lead_times_np.size else None,
         "lead_time_max_seconds": int(lead_times_np.max()) if lead_times_np.size else None,
+        "early_lead_time_min_seconds": (
+            int(early_lead_times_np.min()) if early_lead_times_np.size else None
+        ),
+        "early_lead_time_max_seconds": (
+            int(early_lead_times_np.max()) if early_lead_times_np.size else None
+        ),
+        "patient_min_early_detection": (
+            {
+                "patient_id": early_detected_event_cases[
+                    int(np.argmin(np.asarray(early_lead_times_seconds, dtype=np.int32)))
+                ]["patient_id"],
+                "lead_time_seconds": int(min(early_lead_times_seconds)),
+            }
+            if early_lead_times_seconds
+            else None
+        ),
+        "patient_max_early_detection": (
+            {
+                "patient_id": early_detected_event_cases[
+                    int(np.argmax(np.asarray(early_lead_times_seconds, dtype=np.int32)))
+                ]["patient_id"],
+                "lead_time_seconds": int(max(early_lead_times_seconds)),
+            }
+            if early_lead_times_seconds
+            else None
+        ),
         "pct_detected_gt_half_horizon": (
             float(np.mean(lead_times_np > (prediction_horizon / 2.0)) * 100.0)
             if lead_times_np.size
