@@ -109,6 +109,100 @@ def forecast_with_saved_model(
     return pd.DataFrame(rows)
 
 
+def forecast_with_saved_model_details(
+    model,
+    df: pd.DataFrame,
+    signal_columns: list[str],
+    time_column: str,
+    window_size_samples: int,
+    stride_samples: int,
+    threshold: float,
+) -> tuple[pd.DataFrame, dict[str, dict]]:
+    """Pronóstico por paciente + payload detallado para visualización."""
+    if "patient_id" not in df.columns:
+        raise ValueError("El CSV para pronóstico debe tener columna 'patient_id'.")
+    if time_column not in df.columns:
+        raise ValueError(f"El CSV para pronóstico debe tener columna temporal '{time_column}'.")
+    missing = [c for c in signal_columns if c not in df.columns]
+    if missing:
+        raise ValueError(f"Faltan señales requeridas por el modelo: {missing}")
+
+    rows: list[dict] = []
+    payloads: dict[str, dict] = {}
+
+    for pid, g in df.groupby("patient_id"):
+        g = g.sort_values(time_column).reset_index(drop=True)
+        has_event = "event" in g.columns and pd.to_numeric(g["event"], errors="coerce").fillna(0).max() > 0
+        event_start = None
+        event_end = None
+        if has_event:
+            ev = pd.to_numeric(g["event"], errors="coerce").fillna(0)
+            ev_times = g.loc[ev > 0, time_column].to_numpy(dtype=float)
+            if len(ev_times) > 0:
+                event_start = float(ev_times[0])
+                event_end = float(ev_times[-1])
+
+        if len(g) < window_size_samples:
+            rows.append(
+                {
+                    "patient_id": pid,
+                    "n_ventanas": 0,
+                    "first_alarm_time": None,
+                    "max_probability": None,
+                    "has_event": bool(has_event),
+                    "lead_time_s": None,
+                }
+            )
+            payloads[str(pid)] = {
+                "pred_times": [],
+                "pred_proba": [],
+                "alarm_times": [],
+                "event_start_time": event_start,
+                "event_end_time": event_end,
+            }
+            continue
+
+        x_signal = g[signal_columns].to_numpy(dtype=np.float32, copy=False)
+        t_values = g[time_column].to_numpy(dtype=float)
+        all_windows = np.lib.stride_tricks.sliding_window_view(
+            x_signal, window_shape=window_size_samples, axis=0
+        ).reshape(-1, window_size_samples * len(signal_columns))
+        row_idx = np.arange(0, len(all_windows), max(1, stride_samples))
+        x_windows = all_windows[row_idx]
+        pred_times = t_values[row_idx + window_size_samples - 1]
+
+        if hasattr(model, "predict_proba"):
+            probs = model.predict_proba(x_windows)[:, 1]
+        else:
+            probs = model.predict(x_windows).astype(float)
+
+        alarm_times = pred_times[probs >= threshold]
+        first_alarm = float(alarm_times[0]) if len(alarm_times) > 0 else None
+        lead_time = None
+        if has_event and event_start is not None and first_alarm is not None:
+            lead_time = float(event_start - first_alarm)
+
+        rows.append(
+            {
+                "patient_id": pid,
+                "n_ventanas": int(len(x_windows)),
+                "first_alarm_time": first_alarm,
+                "max_probability": float(np.max(probs)) if len(probs) > 0 else None,
+                "has_event": bool(has_event),
+                "lead_time_s": lead_time,
+            }
+        )
+        payloads[str(pid)] = {
+            "pred_times": [float(v) for v in pred_times.tolist()],
+            "pred_proba": [float(v) for v in probs.tolist()],
+            "alarm_times": [float(v) for v in alarm_times.tolist()],
+            "event_start_time": event_start,
+            "event_end_time": event_end,
+        }
+
+    return pd.DataFrame(rows), payloads
+
+
 def simulate_patient_signals(
     patient_id: int,
     duration_sec: int = 30 * 60,
@@ -1059,7 +1153,7 @@ if user_models:
                     forecast_df = read_csv(forecast_file)
                     forecast_df["fs"] = float(forecast_fs)
             if forecast_df is not None:
-                out_df = forecast_with_saved_model(
+                out_df, payloads = forecast_with_saved_model_details(
                     model=artifact["model"],
                     df=forecast_df,
                     signal_columns=list(artifact.get("signal_columns", [])),
@@ -1075,8 +1169,161 @@ if user_models:
                     file_name="pronostico_modelo_guardado.csv",
                     mime="text/csv",
                 )
+                st.session_state["saved_forecast_table"] = out_df
+                st.session_state["saved_forecast_payloads"] = payloads
+                st.session_state["saved_forecast_df"] = forecast_df
+                st.session_state["saved_forecast_time_column"] = str(
+                    artifact.get("time_column", "t")
+                )
+                st.session_state["saved_forecast_signal_columns"] = list(
+                    artifact.get("signal_columns", [])
+                )
+                st.session_state["saved_forecast_threshold"] = float(
+                    artifact.get("detection_threshold", 0.35)
+                )
         except Exception as exc:
             st.error(f"No se pudo ejecutar pronóstico: {exc}")
+
+saved_forecast_table = st.session_state.get("saved_forecast_table")
+saved_forecast_payloads = st.session_state.get("saved_forecast_payloads")
+saved_forecast_df = st.session_state.get("saved_forecast_df")
+saved_forecast_time_column = st.session_state.get("saved_forecast_time_column")
+saved_forecast_signal_columns = st.session_state.get("saved_forecast_signal_columns", [])
+saved_forecast_threshold = float(st.session_state.get("saved_forecast_threshold", 0.35))
+
+if (
+    isinstance(saved_forecast_table, pd.DataFrame)
+    and isinstance(saved_forecast_payloads, dict)
+    and isinstance(saved_forecast_df, pd.DataFrame)
+    and saved_forecast_time_column in saved_forecast_df.columns
+):
+    st.subheader("Visualización final del pronóstico")
+    view_rows = saved_forecast_table.copy()
+    patient_opts = view_rows["patient_id"].tolist()
+    selected_pid = st.selectbox(
+        "Paciente para visualizar (pronóstico)",
+        options=patient_opts,
+        format_func=lambda pid: f"Paciente {pid}",
+        key="forecast_selected_patient",
+    )
+    payload = saved_forecast_payloads.get(str(selected_pid), {})
+    pred_times = np.asarray(payload.get("pred_times", []), dtype=float)
+    pred_proba = np.asarray(payload.get("pred_proba", []), dtype=float)
+    alarm_times = np.asarray(payload.get("alarm_times", []), dtype=float)
+    ev_start_t = payload.get("event_start_time")
+    ev_end_t = payload.get("event_end_time")
+
+    patient_df = saved_forecast_df[
+        saved_forecast_df["patient_id"].astype(str) == str(selected_pid)
+    ].sort_values(saved_forecast_time_column)
+    signal_cols = [c for c in saved_forecast_signal_columns if c in patient_df.columns]
+    if not signal_cols:
+        signal_cols = [
+            c
+            for c in patient_df.columns
+            if c not in {"patient_id", saved_forecast_time_column, "event", "anomaly", "fs"}
+            and pd.api.types.is_numeric_dtype(patient_df[c])
+        ][:4]
+
+    if len(pred_times) > 0 and len(signal_cols) > 0:
+        if saved_forecast_time_column == "minute":
+            x_pred = pred_times
+            x_alarm = alarm_times if len(alarm_times) else np.array([])
+            xx = patient_df[saved_forecast_time_column].to_numpy(dtype=float)
+            xlabel = "Tiempo (minutos)"
+            ev_start_x = ev_start_t
+            ev_end_x = ev_end_t
+            margin_before = 2.0
+            margin_after = 0.5
+        else:
+            x_pred = pred_times / 60.0
+            x_alarm = alarm_times / 60.0 if len(alarm_times) else np.array([])
+            xx = patient_df[saved_forecast_time_column].to_numpy(dtype=float) / 60.0
+            xlabel = "Tiempo (minutos)"
+            ev_start_x = None if ev_start_t is None else float(ev_start_t) / 60.0
+            ev_end_x = None if ev_end_t is None else float(ev_end_t) / 60.0
+            margin_before = 2.0
+            margin_after = 0.5
+
+        if ev_start_x is not None:
+            x_min = max(float(np.min(xx)), float(ev_start_x) - margin_before)
+            x_max = min(float(np.max(xx)), float(ev_start_x) + margin_after)
+        else:
+            x_min = float(np.min(xx))
+            x_max = float(np.max(xx))
+
+        prob_df = pd.DataFrame({"x": x_pred, "prob": pred_proba})
+        prob_df = prob_df[(prob_df["x"] >= x_min) & (prob_df["x"] <= x_max)]
+        signal_df = patient_df[[saved_forecast_time_column] + signal_cols].copy()
+        signal_df["x"] = xx
+        signal_df = signal_df[(signal_df["x"] >= x_min) & (signal_df["x"] <= x_max)]
+        alarm_df = pd.DataFrame({"x": x_alarm, "y": saved_forecast_threshold})
+        if not alarm_df.empty:
+            alarm_df = alarm_df[(alarm_df["x"] >= x_min) & (alarm_df["x"] <= x_max)]
+
+        event_span_df = pd.DataFrame(columns=["x", "x2"])
+        if ev_start_x is not None and ev_end_x is not None:
+            ev_left = max(x_min, float(ev_start_x))
+            ev_right = min(x_max, float(ev_end_x))
+            if ev_left < ev_right:
+                event_span_df = pd.DataFrame([{"x": ev_left, "x2": ev_right}])
+
+        prob_base = alt.Chart(prob_df).encode(
+            x=alt.X("x:Q", title=xlabel, scale=alt.Scale(domain=[x_min, x_max]))
+        )
+        prob_area = prob_base.mark_area(opacity=0.22, color="#6aa7ff").encode(
+            y=alt.Y("prob:Q", title="Probabilidad", scale=alt.Scale(domain=[0, 1]))
+        )
+        prob_line = prob_base.mark_line(color="#6aa7ff", strokeWidth=2).encode(
+            y=alt.Y("prob:Q", title="Probabilidad", scale=alt.Scale(domain=[0, 1]))
+        )
+        threshold_rule = alt.Chart(pd.DataFrame({"thr": [saved_forecast_threshold]})).mark_rule(
+            color="#f59e0b", strokeDash=[8, 6], strokeWidth=2
+        ).encode(y=alt.Y("thr:Q", scale=alt.Scale(domain=[0, 1])))
+        event_rect = alt.Chart(event_span_df).mark_rect(color="#2563eb", opacity=0.22).encode(
+            x=alt.X("x:Q", scale=alt.Scale(domain=[x_min, x_max]), axis=None),
+            x2="x2:Q",
+        )
+        alarm_lines = alt.Chart(alarm_df).mark_rule(color="#22c55e", opacity=0.28).encode(x="x:Q")
+        alarm_points = alt.Chart(alarm_df).mark_point(
+            color="#22c55e", size=95, shape="triangle-up", filled=True
+        ).encode(x="x:Q", y="y:Q")
+        prob_chart = (
+            event_rect + prob_area + prob_line + threshold_rule + alarm_lines + alarm_points
+        ).properties(height=300, title="Streaming: probabilidad y alarmas (modelo guardado)").resolve_scale(x="shared")
+        st.altair_chart(prob_chart, use_container_width=True)
+
+        signal_palette = {
+            "hr": "#60a5fa",
+            "spo2": "#f59e0b",
+            "map": "#34d399",
+            "etco2": "#f87171",
+            "HR": "#60a5fa",
+            "SpO2": "#f59e0b",
+            "MAP": "#34d399",
+            "EtCO2": "#f87171",
+        }
+        signal_long = signal_df.melt(
+            id_vars=["x"], value_vars=signal_cols, var_name="signal", value_name="value"
+        )
+        color_range = [signal_palette.get(col, "#9fe9ff") for col in signal_cols]
+        signal_line = alt.Chart(signal_long).mark_line(strokeWidth=2).encode(
+            x=alt.X("x:Q", title=xlabel, scale=alt.Scale(domain=[x_min, x_max])),
+            y=alt.Y("value:Q", title="Valor (escalas distintas)"),
+            color=alt.Color(
+                "signal:N",
+                scale=alt.Scale(domain=signal_cols, range=color_range),
+                title="Señales",
+            ),
+        )
+        signal_event_rect = alt.Chart(event_span_df).mark_rect(color="#2563eb", opacity=0.22).encode(
+            x=alt.X("x:Q", scale=alt.Scale(domain=[x_min, x_max]), axis=None),
+            x2="x2:Q",
+        )
+        signal_chart = (signal_event_rect + signal_line).properties(
+            height=320, title="Señales del paciente (pronóstico)"
+        ).resolve_scale(x="shared")
+        st.altair_chart(signal_chart, use_container_width=True)
 
 if train_result is not None:
     st.metric("Accuracy", f"{train_result['accuracy']:.4f}")
