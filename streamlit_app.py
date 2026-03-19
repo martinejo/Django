@@ -327,6 +327,20 @@ if st.session_state["auth_user"] is None:
             border: 1px solid #78b7e9 !important;
             border-radius: 10px !important;
         }}
+        div[data-testid="stForm"] .stTextInput button {{
+            width: 32px !important;
+            min-width: 32px !important;
+            height: 32px !important;
+            min-height: 32px !important;
+            border-radius: 8px !important;
+            padding: 0 !important;
+            margin-right: 4px !important;
+            background: #2a90e3 !important;
+        }}
+        div[data-testid="stForm"] .stTextInput button svg {{
+            width: 16px !important;
+            height: 16px !important;
+        }}
         div[data-testid="stForm"] button {{
             width: 100%;
             background: #2a90e3 !important;
