@@ -572,6 +572,7 @@ st.caption(
 )
 
 st.subheader("Hiperparámetros por modelo")
+st.caption("Modo pruebas activo: el entrenamiento se ejecuta solo con Random Forest.")
 hyperparams_inputs: dict[str, str] = {}
 for key, spec in MODEL_REGISTRY.items():
     st.markdown(f"**{spec.display_name}**")
@@ -586,7 +587,7 @@ for key, spec in MODEL_REGISTRY.items():
 if st.button("Entrenar todos los modelos"):
     all_results: dict[str, dict] = {}
     train_errors: dict[str, str] = {}
-    model_keys = list(MODEL_REGISTRY.keys())
+    model_keys = ["random_forest"]
     user_hyperparams: dict[str, dict] = {}
     parse_errors: list[str] = []
     for key in model_keys:
