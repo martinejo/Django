@@ -29,6 +29,10 @@ def _users_file(base_dir: Path) -> Path:
     return base_dir / "data" / "users" / "users.json"
 
 
+def _sessions_file(base_dir: Path) -> Path:
+    return base_dir / "data" / "users" / "sessions.json"
+
+
 def _ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -47,6 +51,22 @@ def _save_users(base_dir: Path, users: dict[str, dict[str, Any]]) -> None:
     users_path = _users_file(base_dir)
     _ensure_parent(users_path)
     users_path.write_text(json.dumps(users, ensure_ascii=True, indent=2), encoding="utf-8")
+
+
+def _load_sessions(base_dir: Path) -> dict[str, dict[str, Any]]:
+    sessions_path = _sessions_file(base_dir)
+    if not sessions_path.exists():
+        return {}
+    try:
+        return json.loads(sessions_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_sessions(base_dir: Path, sessions: dict[str, dict[str, Any]]) -> None:
+    sessions_path = _sessions_file(base_dir)
+    _ensure_parent(sessions_path)
+    sessions_path.write_text(json.dumps(sessions, ensure_ascii=True, indent=2), encoding="utf-8")
 
 
 def validate_username(username: str) -> bool:
@@ -93,6 +113,44 @@ def authenticate_user(base_dir: Path, username: str, password: str) -> bool:
     if not user:
         return False
     return _verify_password(password, user.get("password_hash", ""))
+
+
+def create_browser_session(base_dir: Path, username: str, ttl_hours: int = 24) -> str:
+    sessions = _load_sessions(base_dir)
+    token = secrets.token_urlsafe(32)
+    now = datetime.utcnow()
+    expires = now.timestamp() + max(1, int(ttl_hours)) * 3600
+    sessions[token] = {
+        "username": username,
+        "created_at": now.isoformat(timespec="seconds") + "Z",
+        "expires_at_ts": float(expires),
+    }
+    _save_sessions(base_dir, sessions)
+    return token
+
+
+def resolve_browser_session(base_dir: Path, token: str) -> str | None:
+    if not token:
+        return None
+    sessions = _load_sessions(base_dir)
+    row = sessions.get(token)
+    if not row:
+        return None
+    now_ts = datetime.utcnow().timestamp()
+    if float(row.get("expires_at_ts", 0)) < now_ts:
+        sessions.pop(token, None)
+        _save_sessions(base_dir, sessions)
+        return None
+    return str(row.get("username", "")).strip() or None
+
+
+def invalidate_browser_session(base_dir: Path, token: str) -> None:
+    if not token:
+        return
+    sessions = _load_sessions(base_dir)
+    if token in sessions:
+        sessions.pop(token, None)
+        _save_sessions(base_dir, sessions)
 
 
 def ensure_user_dirs(base_dir: Path, username: str) -> UserPaths:

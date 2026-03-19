@@ -17,10 +17,13 @@ from src.anomaly_web.config import MODEL_REGISTRY
 from src.anomaly_web.training import read_csv, train_and_evaluate
 from src.anomaly_web.user_store import (
     authenticate_user,
+    create_browser_session,
+    invalidate_browser_session,
     list_user_datasets,
     list_user_models,
     load_model_artifact,
     register_user,
+    resolve_browser_session,
     save_user_dataset,
     save_user_dataset_named,
     save_user_model_artifact_named,
@@ -355,6 +358,14 @@ if "auth_user" not in st.session_state:
     st.session_state["auth_user"] = None
 
 if st.session_state["auth_user"] is None:
+    token = st.query_params.get("session")
+    if isinstance(token, list):
+        token = token[0] if token else None
+    restored_user = resolve_browser_session(APP_ROOT, str(token) if token else "")
+    if restored_user:
+        st.session_state["auth_user"] = restored_user
+
+if st.session_state["auth_user"] is None:
     bg_source = LOGIN_BG_URL
     if LOGIN_BG_PATH.exists():
         encoded = base64.b64encode(LOGIN_BG_PATH.read_bytes()).decode("ascii")
@@ -485,6 +496,8 @@ if st.session_state["auth_user"] is None:
         if submit and auth_mode == "Iniciar sesión":
             if authenticate_user(APP_ROOT, login_user, login_pass):
                 st.session_state["auth_user"] = login_user.strip()
+                browser_token = create_browser_session(APP_ROOT, st.session_state["auth_user"], ttl_hours=24)
+                st.query_params["session"] = browser_token
                 st.success("Sesión iniciada.")
                 st.rerun()
             else:
@@ -527,9 +540,14 @@ def clear_working_state() -> None:
 
 
 if st.sidebar.button("Cerrar sesión"):
+    token = st.query_params.get("session")
+    if isinstance(token, list):
+        token = token[0] if token else None
+    invalidate_browser_session(APP_ROOT, str(token) if token else "")
     st.session_state["auth_user"] = None
     clear_working_state()
     st.session_state.pop("selected_user_dataset_path", None)
+    st.query_params.clear()
     st.rerun()
 
 user_datasets = list_user_datasets(APP_ROOT, active_user)
