@@ -250,44 +250,115 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-if BANNER_PATH.exists():
-    st.image(str(BANNER_PATH), width="stretch")
-
-st.title("Predicción temprana de anomalías")
-st.caption("Panel clínico de soporte para detección anticipada de eventos perioperatorios.")
-
 if "auth_user" not in st.session_state:
     st.session_state["auth_user"] = None
 
 if st.session_state["auth_user"] is None:
-    st.subheader("Acceso de usuario")
-    tab_login, tab_register = st.tabs(["Iniciar sesión", "Registrarse"])
+    st.markdown(
+        """
+        <style>
+        .stApp {
+            background:
+                linear-gradient(135deg, rgba(22,22,24,0.92), rgba(9,10,14,0.96)),
+                repeating-linear-gradient(60deg, rgba(255,255,255,0.03) 0px, rgba(255,255,255,0.03) 2px, transparent 2px, transparent 120px),
+                repeating-linear-gradient(-30deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 2px, transparent 2px, transparent 145px) !important;
+            min-height: 100vh;
+        }
+        [data-testid="stSidebar"] { display: none !important; }
+        .block-container { max-width: 1180px; padding-top: 3.2rem; padding-bottom: 2rem; }
+        .login-title {
+            text-align: center;
+            color: #edf2f8 !important;
+            letter-spacing: 0.24rem;
+            font-size: 2.0rem;
+            margin-bottom: 1.3rem;
+            font-weight: 500;
+        }
+        div[data-testid="stForm"] {
+            background: rgba(248, 250, 253, 0.97);
+            border-top: 4px solid #1e73d8;
+            border-radius: 10px;
+            padding: 18px 18px 10px 18px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.36);
+        }
+        div[data-testid="stForm"] label,
+        div[data-testid="stForm"] .stMarkdown,
+        div[data-testid="stForm"] p {
+            color: #2f3a4a !important;
+        }
+        div[data-testid="stForm"] .stTextInput input {
+            background: #ffffff !important;
+            color: #0f172a !important;
+            border: 1px solid #b8c2d0 !important;
+            border-radius: 6px !important;
+        }
+        div[data-testid="stForm"] button {
+            width: 100%;
+            background: #1565c0 !important;
+            color: #ffffff !important;
+            border-radius: 6px !important;
+            border: none !important;
+            font-weight: 600 !important;
+        }
+        div[data-testid="stForm"] button:hover { background: #0d4f9b !important; }
+        .login-note {
+            text-align: center;
+            color: #e7edf7 !important;
+            margin-bottom: 0.8rem;
+            font-size: 1.08rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown("<div class='login-title'>ESTIMAMODELOS LOGIN</div>", unsafe_allow_html=True)
+    col_l, col_c, col_r = st.columns([1.25, 1.1, 1.25])
+    with col_c:
+        st.markdown(
+            "<div class='login-note'>Inicia sesión o crea tu cuenta para acceder a tu panel personal</div>",
+            unsafe_allow_html=True,
+        )
+        auth_mode = st.radio(
+            "Modo de acceso",
+            ["Iniciar sesión", "Registrarse"],
+            horizontal=True,
+            label_visibility="collapsed",
+        )
+        with st.form("auth_form", clear_on_submit=False):
+            login_user = st.text_input("Usuario", key="login_user")
+            login_pass = st.text_input("Contraseña", type="password", key="login_pass")
+            login_pass2 = None
+            if auth_mode == "Registrarse":
+                login_pass2 = st.text_input(
+                    "Repite contraseña", type="password", key="login_pass_repeat"
+                )
+            submit = st.form_submit_button(
+                "Entrar" if auth_mode == "Iniciar sesión" else "Crear cuenta"
+            )
 
-    with tab_login:
-        login_user = st.text_input("Usuario", key="login_user")
-        login_pass = st.text_input("Contraseña", type="password", key="login_pass")
-        if st.button("Entrar", key="btn_login"):
+        if submit and auth_mode == "Iniciar sesión":
             if authenticate_user(APP_ROOT, login_user, login_pass):
                 st.session_state["auth_user"] = login_user.strip()
                 st.success("Sesión iniciada.")
                 st.rerun()
             else:
                 st.error("Usuario o contraseña incorrectos.")
-
-    with tab_register:
-        reg_user = st.text_input("Nuevo usuario", key="reg_user")
-        reg_pass = st.text_input("Nueva contraseña", type="password", key="reg_pass")
-        reg_pass2 = st.text_input("Repite contraseña", type="password", key="reg_pass2")
-        if st.button("Crear cuenta", key="btn_register"):
-            if reg_pass != reg_pass2:
+        if submit and auth_mode == "Registrarse":
+            if login_pass2 != login_pass:
                 st.error("Las contraseñas no coinciden.")
             else:
-                ok, msg = register_user(APP_ROOT, reg_user, reg_pass)
+                ok, msg = register_user(APP_ROOT, login_user, login_pass)
                 if ok:
                     st.success(msg)
                 else:
                     st.error(msg)
     st.stop()
+
+if BANNER_PATH.exists():
+    st.image(str(BANNER_PATH), width="stretch")
+
+st.title("Predicción temprana de anomalías")
+st.caption("Panel clínico de soporte para detección anticipada de eventos perioperatorios.")
 
 active_user = st.session_state["auth_user"]
 st.sidebar.markdown(f"**Usuario activo:** `{active_user}`")
