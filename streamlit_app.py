@@ -413,10 +413,27 @@ st.caption("Panel clínico de soporte para detección anticipada de eventos peri
 
 active_user = st.session_state["auth_user"]
 st.sidebar.markdown(f"**Usuario activo:** `{active_user}`")
+
+
+def clear_working_state() -> None:
+    """Limpia estado de trabajo para arrancar desde cero con un nuevo dataset."""
+    keys_to_clear = [
+        "train_results_by_model",
+        "train_errors_by_model",
+        "simulated_df",
+        "selected_example_file",
+        "selected_example_name",
+        "last_dataset_path",
+        "last_saved_dataset_key",
+        "forecast_file",
+    ]
+    for k in keys_to_clear:
+        st.session_state.pop(k, None)
+
+
 if st.sidebar.button("Cerrar sesión"):
     st.session_state["auth_user"] = None
-    st.session_state.pop("train_results_by_model", None)
-    st.session_state.pop("train_errors_by_model", None)
+    clear_working_state()
     st.session_state.pop("selected_user_dataset_path", None)
     st.rerun()
 
@@ -430,6 +447,9 @@ if user_datasets:
         key="sidebar_dataset_select",
     )
     if st.sidebar.button("Usar este dataset", key="btn_use_saved_dataset"):
+        st.session_state["selected_user_dataset_path"] = selected_dataset_sidebar["path"]
+        st.session_state["selected_user_dataset_name"] = selected_dataset_sidebar["name"]
+        clear_working_state()
         st.session_state["selected_user_dataset_path"] = selected_dataset_sidebar["path"]
         st.session_state["selected_user_dataset_name"] = selected_dataset_sidebar["name"]
         st.success(f"Dataset seleccionado: {selected_dataset_sidebar['name']}")
@@ -1007,24 +1027,38 @@ if user_models:
             "fs para CSV de pronóstico (muestras/segundo)",
             min_value=0.1,
             max_value=500.0,
-            value=1.0,
+            value=float(dataset_fs),
             step=0.1,
             key="forecast_fs",
         )
     )
-    forecast_file = st.file_uploader(
-        "CSV nuevo para pronóstico",
-        type=["csv"],
-        key="forecast_file",
+    forecast_source = st.radio(
+        "Dataset para pronóstico",
+        options=["Usar dataset cargado actualmente", "Subir CSV nuevo"],
+        horizontal=True,
+        key="forecast_source_mode",
     )
+    forecast_file = None
+    if forecast_source == "Subir CSV nuevo":
+        forecast_file = st.file_uploader(
+            "CSV nuevo para pronóstico",
+            type=["csv"],
+            key="forecast_file",
+        )
     if st.button("Ejecutar pronóstico con modelo guardado", key="btn_forecast_saved"):
-        if forecast_file is None:
-            st.error("Sube un CSV para pronóstico.")
-        else:
-            try:
-                artifact = load_model_artifact(model_path)
-                forecast_df = read_csv(forecast_file)
+        try:
+            artifact = load_model_artifact(model_path)
+            if forecast_source == "Usar dataset cargado actualmente":
+                forecast_df = data.copy()
                 forecast_df["fs"] = float(forecast_fs)
+            else:
+                if forecast_file is None:
+                    st.error("Sube un CSV para pronóstico.")
+                    forecast_df = None
+                else:
+                    forecast_df = read_csv(forecast_file)
+                    forecast_df["fs"] = float(forecast_fs)
+            if forecast_df is not None:
                 out_df = forecast_with_saved_model(
                     model=artifact["model"],
                     df=forecast_df,
@@ -1041,8 +1075,8 @@ if user_models:
                     file_name="pronostico_modelo_guardado.csv",
                     mime="text/csv",
                 )
-            except Exception as exc:
-                st.error(f"No se pudo ejecutar pronóstico: {exc}")
+        except Exception as exc:
+            st.error(f"No se pudo ejecutar pronóstico: {exc}")
 
 if train_result is not None:
     st.metric("Accuracy", f"{train_result['accuracy']:.4f}")
