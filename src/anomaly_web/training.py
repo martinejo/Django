@@ -116,7 +116,9 @@ def _patient_window_arrays(
         next_event_idx[i] = next_pos
 
     distances = next_event_idx[window_end_idx] - window_end_idx
-    labels = ((distances >= 1) & (distances <= prediction_horizon)).astype(np.int8)
+    # Modo actual: anticipación + durante evento
+    # Incluye distancia 0 para etiquetar también ventanas en el instante de inicio del evento.
+    labels = ((distances >= 0) & (distances <= prediction_horizon)).astype(np.int8)
 
     windows = None
     if include_windows:
