@@ -417,11 +417,29 @@ if st.sidebar.button("Cerrar sesión"):
     st.session_state["auth_user"] = None
     st.session_state.pop("train_results_by_model", None)
     st.session_state.pop("train_errors_by_model", None)
+    st.session_state.pop("selected_user_dataset_path", None)
     st.rerun()
+
+user_datasets = list_user_datasets(APP_ROOT, active_user)
+st.sidebar.markdown("**Cargar dataset guardado**")
+if user_datasets:
+    selected_dataset_sidebar = st.sidebar.selectbox(
+        "Tus datasets",
+        options=user_datasets,
+        format_func=lambda item: item["name"],
+        key="sidebar_dataset_select",
+    )
+    if st.sidebar.button("Usar este dataset", key="btn_use_saved_dataset"):
+        st.session_state["selected_user_dataset_path"] = selected_dataset_sidebar["path"]
+        st.session_state["selected_user_dataset_name"] = selected_dataset_sidebar["name"]
+        st.success(f"Dataset seleccionado: {selected_dataset_sidebar['name']}")
+        st.rerun()
+else:
+    st.sidebar.caption("No tienes datasets guardados todavía.")
 
 source = st.radio(
     "Fuente de datos",
-    options=["Subir CSV", "Usar CSV de ejemplo", "Simular"],
+    options=["Mis datasets guardados", "Subir CSV", "Usar CSV de ejemplo", "Simular"],
     horizontal=True,
 )
 
@@ -440,7 +458,21 @@ if source in {"Subir CSV", "Usar CSV de ejemplo"}:
         )
     )
 
-if source == "Simular":
+if source == "Mis datasets guardados":
+    selected_dataset_path = st.session_state.get("selected_user_dataset_path")
+    selected_dataset_name = st.session_state.get("selected_user_dataset_name", "")
+    if selected_dataset_path is None:
+        st.info("Selecciona un dataset en la barra lateral y pulsa 'Usar este dataset'.")
+        st.stop()
+    try:
+        data = read_csv(selected_dataset_path)
+        if "fs" not in data.columns:
+            data["fs"] = 1.0
+        st.success(f"Dataset cargado desde tu almacenamiento: {selected_dataset_name}")
+    except Exception as exc:
+        st.error(f"No se pudo cargar el dataset guardado: {exc}")
+        st.stop()
+elif source == "Simular":
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         sim_duration = int(
@@ -535,8 +567,6 @@ else:
 
 st.subheader("Vista rápida del dataset")
 st.dataframe(data.head(20), width="stretch")
-
-user_datasets = list_user_datasets(APP_ROOT, active_user)
 with st.sidebar.expander("Mis datasets", expanded=False):
     if user_datasets:
         for item in user_datasets[:20]:
