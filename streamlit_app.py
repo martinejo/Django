@@ -413,14 +413,14 @@ if len(data) > 400_000:
 st.subheader("Hiperparámetros por modelo")
 hyperparams_inputs: dict[str, str] = {}
 for key, spec in MODEL_REGISTRY.items():
-    with st.expander(f"{spec.display_name}", expanded=False):
-        text_value = st.text_area(
-            f"Hiperparámetros ({spec.display_name}) [dict Python]",
-            value=st.session_state.get(f"hyperparams_text_{key}", str(spec.defaults)),
-            key=f"hyperparams_text_{key}",
-            height=140,
-        )
-        hyperparams_inputs[key] = text_value
+    st.markdown(f"**{spec.display_name}**")
+    text_value = st.text_area(
+        f"Hiperparámetros ({spec.display_name}) [dict Python]",
+        value=st.session_state.get(f"hyperparams_text_{key}", str(spec.defaults)),
+        key=f"hyperparams_text_{key}",
+        height=140,
+    )
+    hyperparams_inputs[key] = text_value
 
 if st.button("Entrenar todos los modelos"):
     all_results: dict[str, dict] = {}
