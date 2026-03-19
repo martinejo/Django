@@ -326,6 +326,7 @@ if st.session_state["auth_user"] is None:
             color: #0f172a !important;
             border: 1px solid #78b7e9 !important;
             border-radius: 10px !important;
+            caret-color: #000000 !important;
         }}
         div[data-testid="stForm"] .stTextInput button {{
             width: 32px !important;
