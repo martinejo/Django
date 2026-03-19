@@ -113,6 +113,15 @@ def save_user_dataset(base_dir: Path, username: str, df: pd.DataFrame, source: s
     return out
 
 
+def save_user_dataset_named(base_dir: Path, username: str, df: pd.DataFrame, dataset_name: str) -> Path:
+    paths = ensure_user_dirs(base_dir, username)
+    stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", dataset_name.strip().lower()) or "dataset"
+    out = paths.datasets / f"{stamp}_{safe_name}.csv"
+    df.to_csv(out, index=False)
+    return out
+
+
 def list_user_datasets(base_dir: Path, username: str) -> list[dict[str, Any]]:
     paths = ensure_user_dirs(base_dir, username)
     items = []
@@ -137,6 +146,22 @@ def save_user_model_artifact(
     paths = ensure_user_dirs(base_dir, username)
     stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     out = paths.models / f"{stamp}_{model_key}.pkl"
+    with out.open("wb") as f:
+        pickle.dump(artifact, f)
+    return out
+
+
+def save_user_model_artifact_named(
+    base_dir: Path,
+    username: str,
+    model_key: str,
+    model_name: str,
+    artifact: dict[str, Any],
+) -> Path:
+    paths = ensure_user_dirs(base_dir, username)
+    stamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    safe_name = re.sub(r"[^a-zA-Z0-9_-]+", "_", model_name.strip().lower()) or model_key
+    out = paths.models / f"{stamp}_{safe_name}_{model_key}.pkl"
     with out.open("wb") as f:
         pickle.dump(artifact, f)
     return out

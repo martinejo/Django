@@ -22,7 +22,8 @@ from src.anomaly_web.user_store import (
     load_model_artifact,
     register_user,
     save_user_dataset,
-    save_user_model_artifact,
+    save_user_dataset_named,
+    save_user_model_artifact_named,
 )
 
 EXAMPLES_DIR = Path(__file__).parent / "data" / "examples"
@@ -612,14 +613,10 @@ elif source == "Simular":
                 event_prob=sim_event_prob,
             )
             st.session_state["simulated_df"] = sim_df
-            saved_path = save_user_dataset(APP_ROOT, active_user, sim_df, source="simulado")
-            st.session_state["last_dataset_path"] = str(saved_path)
-            st.session_state["last_saved_dataset_key"] = (
-                f"sim:{sim_n_patients}:{sim_duration}:{sim_fs}:{sim_event_prob}"
-            )
             st.success(
                 f"Simulación creada: {sim_n_patients} pacientes, {sim_duration}s, fs={sim_fs}Hz."
             )
+            st.info("Dataset simulado listo. Puedes guardarlo manualmente con un nombre.")
         except Exception as exc:
             st.error(f"No se pudo simular el dataset: {exc}")
             st.stop()
@@ -677,6 +674,21 @@ else:
     else:
         st.info("Selecciona un CSV de ejemplo y pulsa el botón de carga.")
         st.stop()
+
+if source == "Simular" and data is not None:
+    st.subheader("Guardar dataset simulado")
+    sim_dataset_name = st.text_input(
+        "Nombre del dataset simulado",
+        value=st.session_state.get("sim_dataset_name", "simulacion_anestesia"),
+        key="sim_dataset_name",
+    )
+    if st.button("Guardar dataset simulado", key="btn_save_sim_dataset"):
+        try:
+            saved_path = save_user_dataset_named(APP_ROOT, active_user, data, sim_dataset_name)
+            st.session_state["last_dataset_path"] = str(saved_path)
+            st.success(f"Dataset guardado como: {saved_path.name}")
+        except Exception as exc:
+            st.error(f"No se pudo guardar el dataset simulado: {exc}")
 
 
 st.subheader("Vista rápida del dataset")
@@ -1070,12 +1082,25 @@ if train_errors_by_model:
     st.caption("Errores de entrenamiento:\n" + "\n".join(error_lines))
 
 if train_results_by_model:
-    if st.button("Guardar modelos entrenados en mi espacio"):
-        saved_names = []
-        for key, result in train_results_by_model.items():
+    st.subheader("Guardar modelo entrenado")
+    save_model_key = st.selectbox(
+        "Modelo a guardar",
+        options=list(train_results_by_model.keys()),
+        format_func=lambda key: MODEL_REGISTRY[key].display_name,
+        key="save_trained_model_key",
+    )
+    default_model_name = f"{MODEL_REGISTRY[save_model_key].display_name}_v1"
+    save_model_name = st.text_input(
+        "Nombre del modelo",
+        value=st.session_state.get("save_model_name", default_model_name),
+        key="save_model_name",
+    )
+    if st.button("Guardar modelo entrenado", key="btn_save_trained_model"):
+        try:
+            result = train_results_by_model[save_model_key]
             artifact = {
-                "model_key": key,
-                "display_name": MODEL_REGISTRY[key].display_name,
+                "model_key": save_model_key,
+                "display_name": MODEL_REGISTRY[save_model_key].display_name,
                 "model": result.get("model"),
                 "signal_columns": result.get("signal_columns", []),
                 "window_size_samples": int(result.get("window_size_samples", result.get("window_size", 5))),
@@ -1087,9 +1112,12 @@ if train_results_by_model:
                 "time_column": result.get("time_column", "t"),
                 "sampling_frequency_hz": float(result.get("sampling_frequency_hz", dataset_fs)),
             }
-            p = save_user_model_artifact(APP_ROOT, active_user, key, artifact)
-            saved_names.append(p.name)
-        st.success(f"Modelos guardados: {len(saved_names)}")
+            p = save_user_model_artifact_named(
+                APP_ROOT, active_user, save_model_key, save_model_name, artifact
+            )
+            st.success(f"Modelo guardado como: {p.name}")
+        except Exception as exc:
+            st.error(f"No se pudo guardar el modelo: {exc}")
 
 user_models = list_user_models(APP_ROOT, active_user)
 with st.sidebar.expander("Mis modelos guardados", expanded=False):
