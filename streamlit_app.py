@@ -22,7 +22,6 @@ from src.anomaly_web.user_store import (
     list_user_datasets,
     list_user_models,
     load_model_artifact,
-    register_user,
     resolve_browser_session,
     save_user_dataset,
     save_user_dataset_named,
@@ -475,25 +474,12 @@ if st.session_state["auth_user"] is None:
             "<div class='login-note'>Inicia sesión o crea tu cuenta para acceder a tu panel personal</div>",
             unsafe_allow_html=True,
         )
-        auth_mode = st.radio(
-            "Modo de acceso",
-            ["Iniciar sesión", "Registrarse"],
-            horizontal=True,
-            label_visibility="collapsed",
-        )
         with st.form("auth_form", clear_on_submit=False):
             login_user = st.text_input("Usuario", key="login_user")
             login_pass = st.text_input("Contraseña", type="password", key="login_pass")
-            login_pass2 = None
-            if auth_mode == "Registrarse":
-                login_pass2 = st.text_input(
-                    "Repite contraseña", type="password", key="login_pass_repeat"
-                )
-            submit = st.form_submit_button(
-                "Entrar" if auth_mode == "Iniciar sesión" else "Crear cuenta"
-            )
+            submit = st.form_submit_button("Entrar")
 
-        if submit and auth_mode == "Iniciar sesión":
+        if submit:
             if authenticate_user(APP_ROOT, login_user, login_pass):
                 st.session_state["auth_user"] = login_user.strip()
                 browser_token = create_browser_session(APP_ROOT, st.session_state["auth_user"], ttl_hours=24)
@@ -502,15 +488,6 @@ if st.session_state["auth_user"] is None:
                 st.rerun()
             else:
                 st.error("Usuario o contraseña incorrectos.")
-        if submit and auth_mode == "Registrarse":
-            if login_pass2 != login_pass:
-                st.error("Las contraseñas no coinciden.")
-            else:
-                ok, msg = register_user(APP_ROOT, login_user, login_pass)
-                if ok:
-                    st.success(msg)
-                else:
-                    st.error(msg)
     st.stop()
 
 if BANNER_PATH.exists():
