@@ -867,20 +867,28 @@ st.caption(
     f"horizonte={prediction_horizon_samples} muestras."
 )
 
-st.subheader("Hiperparámetros por modelo")
-st.caption("Modo pruebas activo: el entrenamiento se ejecuta solo con Random Forest.")
-hyperparams_inputs: dict[str, str] = {}
-for key, spec in MODEL_REGISTRY.items():
-    st.markdown(f"**{spec.display_name}**")
-    text_value = st.text_area(
-        f"Hiperparámetros ({spec.display_name}) [dict Python]",
-        value=st.session_state.get(f"hyperparams_text_{key}", str(spec.defaults)),
-        key=f"hyperparams_text_{key}",
-        height=140,
-    )
-    hyperparams_inputs[key] = text_value
+model_mode = st.radio(
+    "Flujo de modelo",
+    options=["Modelo nuevo", "Modelo guardado"],
+    horizontal=True,
+    key="model_mode_tab",
+)
 
-if st.button("Entrenar todos los modelos"):
+hyperparams_inputs: dict[str, str] = {}
+if model_mode == "Modelo nuevo":
+    st.subheader("Hiperparámetros por modelo")
+    st.caption("Modo pruebas activo: el entrenamiento se ejecuta solo con Random Forest.")
+    for key, spec in MODEL_REGISTRY.items():
+        st.markdown(f"**{spec.display_name}**")
+        text_value = st.text_area(
+            f"Hiperparámetros ({spec.display_name}) [dict Python]",
+            value=st.session_state.get(f"hyperparams_text_{key}", str(spec.defaults)),
+            key=f"hyperparams_text_{key}",
+            height=140,
+        )
+        hyperparams_inputs[key] = text_value
+
+if model_mode == "Modelo nuevo" and st.button("Entrenar todos los modelos"):
     all_results: dict[str, dict] = {}
     train_errors: dict[str, str] = {}
     model_keys = ["random_forest"]
@@ -1053,7 +1061,7 @@ train_results_by_model = st.session_state.get("train_results_by_model", {})
 train_errors_by_model = st.session_state.get("train_errors_by_model", {})
 train_result = None
 
-if train_results_by_model:
+if model_mode == "Modelo nuevo" and train_results_by_model:
     st.subheader("Comparativa de modelos")
     comparison_rows = []
     for key, result in train_results_by_model.items():
@@ -1092,14 +1100,14 @@ if train_results_by_model:
     train_result = train_results_by_model[selected_model_key]
     st.caption(f"Análisis detallado activo: {MODEL_REGISTRY[selected_model_key].display_name}")
 
-if train_errors_by_model:
+if model_mode == "Modelo nuevo" and train_errors_by_model:
     error_lines = [
         f"- {MODEL_REGISTRY[key].display_name}: {msg}"
         for key, msg in train_errors_by_model.items()
     ]
     st.caption("Errores de entrenamiento:\n" + "\n".join(error_lines))
 
-if train_results_by_model:
+if model_mode == "Modelo nuevo" and train_results_by_model:
     st.subheader("Guardar modelo entrenado")
     save_model_key = st.selectbox(
         "Modelo a guardar",
@@ -1145,7 +1153,10 @@ with st.sidebar.expander("Mis modelos guardados", expanded=False):
     else:
         st.caption("Aún no tienes modelos guardados.")
 
-if user_models:
+if model_mode == "Modelo guardado" and not user_models:
+    st.info("No tienes modelos guardados todavía. Entrena y guarda un modelo para usar esta pestaña.")
+
+if model_mode == "Modelo guardado" and user_models:
     st.subheader("Pronóstico con modelo guardado")
     model_choice = st.selectbox(
         "Modelo guardado",
@@ -1238,6 +1249,8 @@ saved_forecast_signal_columns = st.session_state.get("saved_forecast_signal_colu
 saved_forecast_threshold = float(st.session_state.get("saved_forecast_threshold", 0.35))
 
 if (
+    model_mode == "Modelo guardado"
+    and
     isinstance(saved_forecast_table, pd.DataFrame)
     and isinstance(saved_forecast_payloads, dict)
     and isinstance(saved_forecast_df, pd.DataFrame)
@@ -1380,7 +1393,7 @@ if (
         ).resolve_scale(x="shared")
         st.altair_chart(signal_chart, use_container_width=True)
 
-if train_result is not None:
+if model_mode == "Modelo nuevo" and train_result is not None:
     st.metric("Accuracy", f"{train_result['accuracy']:.4f}")
     st.metric("Ventanas usadas", f"{train_result['num_windows']}")
     st.metric("Tasa positiva", f"{train_result['positive_rate']:.2%}")
