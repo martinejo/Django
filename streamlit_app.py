@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections import deque
 from pathlib import Path
+import time
 
 import altair as alt
 import numpy as np
@@ -412,9 +414,27 @@ if st.button("Entrenar todos los modelos"):
     train_errors: dict[str, str] = {}
     model_keys = list(MODEL_REGISTRY.keys())
     progress = st.progress(0.0)
+    status_placeholder = st.empty()
+    log_placeholder = st.empty()
+    partial_table_placeholder = st.empty()
+    logs = deque(maxlen=14)
+    partial_rows: list[dict] = []
+    global_start = time.perf_counter()
+
+    def push_log(line: str):
+        ts = time.strftime("%H:%M:%S")
+        logs.append(f"[{ts}] {line}")
+        log_placeholder.code("\n".join(logs), language="text")
 
     for idx, key in enumerate(model_keys, start=1):
         model_name = MODEL_REGISTRY[key].display_name
+        model_start = time.perf_counter()
+        elapsed_total = time.perf_counter() - global_start
+        status_placeholder.info(
+            f"Entrenando {model_name} ({idx}/{len(model_keys)}) · "
+            f"transcurrido {elapsed_total:.1f}s"
+        )
+        push_log(f"Inicia entrenamiento de {model_name}.")
         try:
             result = train_and_evaluate(
                 df=data,
@@ -429,12 +449,83 @@ if st.button("Entrenar todos los modelos"):
                 alarm_refractory=int(alarm_refractory),
             )
             all_results[key] = result
+            metrics = result.get("patient_level_metrics", {})
+            min_early = metrics.get("patient_min_early_detection") or {}
+            max_early = metrics.get("patient_max_early_detection") or {}
+
+            partial_rows.append(
+                {
+                    "Modelo": model_name,
+                    "Pacientes detectados": metrics.get("patients_detected", 0),
+                    "Detectados antes del evento": metrics.get("patients_detected_pre_event", 0),
+                    "Tiempo medio detección temprana (s)": metrics.get("early_lead_time_mean_seconds"),
+                    "Paciente menor tiempo detección": (
+                        f"{min_early.get('patient_id')} ({min_early.get('lead_time_seconds')}s)"
+                        if min_early
+                        else "N/A"
+                    ),
+                    "Paciente mayor tiempo detección": (
+                        f"{max_early.get('patient_id')} ({max_early.get('lead_time_seconds')}s)"
+                        if max_early
+                        else "N/A"
+                    ),
+                }
+            )
+            partial_table_placeholder.dataframe(
+                pd.DataFrame(partial_rows),
+                width="stretch",
+                hide_index=True,
+            )
+
+            model_obj = result.get("model")
+            technical_parts = []
+            if hasattr(model_obj, "n_iter_"):
+                technical_parts.append(f"n_iter={getattr(model_obj, 'n_iter_')}")
+            if hasattr(model_obj, "loss_"):
+                try:
+                    technical_parts.append(f"loss_final={float(getattr(model_obj, 'loss_')):.6f}")
+                except Exception:
+                    technical_parts.append("loss_final=disponible")
+            if hasattr(model_obj, "loss_curve_"):
+                loss_curve = getattr(model_obj, "loss_curve_")
+                if isinstance(loss_curve, list) and len(loss_curve) > 0:
+                    technical_parts.append(f"loss_curve_pts={len(loss_curve)}")
+            if hasattr(model_obj, "n_estimators_"):
+                technical_parts.append(f"n_estimators={getattr(model_obj, 'n_estimators_')}")
+            if hasattr(model_obj, "feature_importances_"):
+                technical_parts.append("feature_importances=disponible")
+
+            model_elapsed = time.perf_counter() - model_start
+            if technical_parts:
+                push_log(
+                    f"{model_name} completado en {model_elapsed:.1f}s | "
+                    + " | ".join(technical_parts)
+                )
+            else:
+                push_log(f"{model_name} completado en {model_elapsed:.1f}s.")
         except Exception as exc:
             train_errors[key] = str(exc)
-        progress.progress(idx / len(model_keys), text=f"Entrenando {model_name} ({idx}/{len(model_keys)})")
+            model_elapsed = time.perf_counter() - model_start
+            push_log(f"{model_name} falló en {model_elapsed:.1f}s: {exc}")
+
+        elapsed = time.perf_counter() - global_start
+        avg_per_model = elapsed / idx
+        remaining_models = len(model_keys) - idx
+        eta = avg_per_model * remaining_models
+        progress.progress(
+            idx / len(model_keys),
+            text=f"Completado {idx}/{len(model_keys)} · transcurrido {elapsed:.1f}s · ETA {eta:.1f}s",
+        )
 
     st.session_state["train_results_by_model"] = all_results
     st.session_state["train_errors_by_model"] = train_errors
+
+    total_elapsed = time.perf_counter() - global_start
+    status_placeholder.success(
+        f"Entrenamiento multi-modelo finalizado en {total_elapsed:.1f}s "
+        f"({len(all_results)} OK, {len(train_errors)} con error)."
+    )
+    push_log("Proceso finalizado.")
 
     if all_results:
         st.success(f"Entrenamiento completado en {len(all_results)} modelo(s).")
