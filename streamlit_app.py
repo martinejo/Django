@@ -14,9 +14,19 @@ import streamlit as st
 
 from src.anomaly_web.config import MODEL_REGISTRY
 from src.anomaly_web.training import read_csv, train_and_evaluate
+from src.anomaly_web.user_store import (
+    authenticate_user,
+    list_user_datasets,
+    list_user_models,
+    load_model_artifact,
+    register_user,
+    save_user_dataset,
+    save_user_model_artifact,
+)
 
 EXAMPLES_DIR = Path(__file__).parent / "data" / "examples"
 BANNER_PATH = Path(__file__).parent / "Gemini_Generated_Image_vjzlxxvjzlxxvjzl.png"
+APP_ROOT = Path(__file__).parent
 EXAMPLE_DATASETS = {
     "Hipotensión durante inducción": {
         "file": "hipotension_induccion.csv",
@@ -31,6 +41,66 @@ EXAMPLE_DATASETS = {
         "description": "Inestabilidad combinada de MAP, FC y BIS en diferentes momentos.",
     },
 }
+
+
+def forecast_with_saved_model(
+    model,
+    df: pd.DataFrame,
+    signal_columns: list[str],
+    time_column: str,
+    window_size_samples: int,
+    stride_samples: int,
+    threshold: float,
+) -> pd.DataFrame:
+    """Predicción streaming por paciente usando un modelo ya entrenado."""
+    if "patient_id" not in df.columns:
+        raise ValueError("El CSV para pronóstico debe tener columna 'patient_id'.")
+    if time_column not in df.columns:
+        raise ValueError(f"El CSV para pronóstico debe tener columna temporal '{time_column}'.")
+    missing = [c for c in signal_columns if c not in df.columns]
+    if missing:
+        raise ValueError(f"Faltan señales requeridas por el modelo: {missing}")
+
+    rows: list[dict] = []
+    for pid, g in df.groupby("patient_id"):
+        g = g.sort_values(time_column).reset_index(drop=True)
+        if len(g) < window_size_samples:
+            rows.append(
+                {
+                    "patient_id": pid,
+                    "n_ventanas": 0,
+                    "first_alarm_time": None,
+                    "max_probability": None,
+                }
+            )
+            continue
+
+        x_signal = g[signal_columns].to_numpy(dtype=np.float32, copy=False)
+        t_values = g[time_column].to_numpy(dtype=float)
+        all_windows = np.lib.stride_tricks.sliding_window_view(
+            x_signal, window_shape=window_size_samples, axis=0
+        ).reshape(-1, window_size_samples * len(signal_columns))
+        row_idx = np.arange(0, len(all_windows), max(1, stride_samples))
+        x_windows = all_windows[row_idx]
+        pred_times = t_values[row_idx + window_size_samples - 1]
+
+        if hasattr(model, "predict_proba"):
+            probs = model.predict_proba(x_windows)[:, 1]
+        else:
+            probs = model.predict(x_windows).astype(float)
+
+        alarm_times = pred_times[probs >= threshold]
+        first_alarm = float(alarm_times[0]) if len(alarm_times) > 0 else None
+        rows.append(
+            {
+                "patient_id": pid,
+                "n_ventanas": int(len(x_windows)),
+                "first_alarm_time": first_alarm,
+                "max_probability": float(np.max(probs)) if len(probs) > 0 else None,
+            }
+        )
+
+    return pd.DataFrame(rows)
 
 
 def simulate_patient_signals(
@@ -186,6 +256,47 @@ if BANNER_PATH.exists():
 st.title("Predicción temprana de anomalías")
 st.caption("Panel clínico de soporte para detección anticipada de eventos perioperatorios.")
 
+if "auth_user" not in st.session_state:
+    st.session_state["auth_user"] = None
+
+if st.session_state["auth_user"] is None:
+    st.subheader("Acceso de usuario")
+    tab_login, tab_register = st.tabs(["Iniciar sesión", "Registrarse"])
+
+    with tab_login:
+        login_user = st.text_input("Usuario", key="login_user")
+        login_pass = st.text_input("Contraseña", type="password", key="login_pass")
+        if st.button("Entrar", key="btn_login"):
+            if authenticate_user(APP_ROOT, login_user, login_pass):
+                st.session_state["auth_user"] = login_user.strip()
+                st.success("Sesión iniciada.")
+                st.rerun()
+            else:
+                st.error("Usuario o contraseña incorrectos.")
+
+    with tab_register:
+        reg_user = st.text_input("Nuevo usuario", key="reg_user")
+        reg_pass = st.text_input("Nueva contraseña", type="password", key="reg_pass")
+        reg_pass2 = st.text_input("Repite contraseña", type="password", key="reg_pass2")
+        if st.button("Crear cuenta", key="btn_register"):
+            if reg_pass != reg_pass2:
+                st.error("Las contraseñas no coinciden.")
+            else:
+                ok, msg = register_user(APP_ROOT, reg_user, reg_pass)
+                if ok:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+    st.stop()
+
+active_user = st.session_state["auth_user"]
+st.sidebar.markdown(f"**Usuario activo:** `{active_user}`")
+if st.sidebar.button("Cerrar sesión"):
+    st.session_state["auth_user"] = None
+    st.session_state.pop("train_results_by_model", None)
+    st.session_state.pop("train_errors_by_model", None)
+    st.rerun()
+
 source = st.radio(
     "Fuente de datos",
     options=["Subir CSV", "Usar CSV de ejemplo", "Simular"],
@@ -233,6 +344,11 @@ if source == "Simular":
                 event_prob=sim_event_prob,
             )
             st.session_state["simulated_df"] = sim_df
+            saved_path = save_user_dataset(APP_ROOT, active_user, sim_df, source="simulado")
+            st.session_state["last_dataset_path"] = str(saved_path)
+            st.session_state["last_saved_dataset_key"] = (
+                f"sim:{sim_n_patients}:{sim_duration}:{sim_fs}:{sim_event_prob}"
+            )
             st.success(
                 f"Simulación creada: {sim_n_patients} pacientes, {sim_duration}s, fs={sim_fs}Hz."
             )
@@ -255,6 +371,11 @@ elif source == "Subir CSV":
     try:
         data = read_csv(uploaded_file)
         data["fs"] = float(input_fs_csv)
+        save_key = f"upload:{uploaded_file.name}:{len(data)}:{input_fs_csv}"
+        if st.session_state.get("last_saved_dataset_key") != save_key:
+            saved_path = save_user_dataset(APP_ROOT, active_user, data, source="subido")
+            st.session_state["last_dataset_path"] = str(saved_path)
+            st.session_state["last_saved_dataset_key"] = save_key
     except Exception as exc:
         st.error(f"No se pudo leer el CSV: {exc}")
         st.stop()
@@ -274,6 +395,13 @@ else:
         try:
             data = read_csv(example_path)
             data["fs"] = float(input_fs_csv)
+            save_key = f"example:{selected_file}:{len(data)}:{input_fs_csv}"
+            if st.session_state.get("last_saved_dataset_key") != save_key:
+                saved_path = save_user_dataset(
+                    APP_ROOT, active_user, data, source=f"ejemplo_{selected_file}"
+                )
+                st.session_state["last_dataset_path"] = str(saved_path)
+                st.session_state["last_saved_dataset_key"] = save_key
             st.success(f"CSV cargado: {selected_name}")
         except Exception as exc:
             st.error(f"No se pudo cargar el CSV de ejemplo: {exc}")
@@ -285,6 +413,14 @@ else:
 
 st.subheader("Vista rápida del dataset")
 st.dataframe(data.head(20), width="stretch")
+
+user_datasets = list_user_datasets(APP_ROOT, active_user)
+with st.sidebar.expander("Mis datasets", expanded=False):
+    if user_datasets:
+        for item in user_datasets[:20]:
+            st.caption(f"{item['name']} · {item['size_kb']} KB")
+    else:
+        st.caption("Aún no tienes datasets guardados.")
 
 columns = list(data.columns)
 if "anomaly" in columns:
@@ -665,6 +801,95 @@ if train_errors_by_model:
         for key, msg in train_errors_by_model.items()
     ]
     st.caption("Errores de entrenamiento:\n" + "\n".join(error_lines))
+
+if train_results_by_model:
+    if st.button("Guardar modelos entrenados en mi espacio"):
+        saved_names = []
+        for key, result in train_results_by_model.items():
+            artifact = {
+                "model_key": key,
+                "display_name": MODEL_REGISTRY[key].display_name,
+                "model": result.get("model"),
+                "signal_columns": result.get("signal_columns", []),
+                "window_size_samples": int(result.get("window_size_samples", result.get("window_size", 5))),
+                "prediction_horizon_samples": int(
+                    result.get("prediction_horizon_samples", result.get("prediction_horizon", 3))
+                ),
+                "stride_samples": int(result.get("stride", 1)),
+                "detection_threshold": float(result.get("detection_threshold", 0.35)),
+                "time_column": result.get("time_column", "t"),
+                "sampling_frequency_hz": float(result.get("sampling_frequency_hz", dataset_fs)),
+            }
+            p = save_user_model_artifact(APP_ROOT, active_user, key, artifact)
+            saved_names.append(p.name)
+        st.success(f"Modelos guardados: {len(saved_names)}")
+
+user_models = list_user_models(APP_ROOT, active_user)
+with st.sidebar.expander("Mis modelos guardados", expanded=False):
+    if user_models:
+        for m in user_models[:20]:
+            st.caption(f"{m['name']} · {m['size_kb']} KB")
+    else:
+        st.caption("Aún no tienes modelos guardados.")
+
+if user_models:
+    st.subheader("Pronóstico con modelo guardado")
+    model_choice = st.selectbox(
+        "Modelo guardado",
+        options=user_models,
+        format_func=lambda m: m["name"],
+        key="saved_model_choice",
+    )
+    model_path = Path(model_choice["path"])
+    with model_path.open("rb") as f:
+        st.download_button(
+            "Exportar modelo (.pkl)",
+            data=f.read(),
+            file_name=model_path.name,
+            mime="application/octet-stream",
+        )
+
+    forecast_fs = float(
+        st.number_input(
+            "fs para CSV de pronóstico (muestras/segundo)",
+            min_value=0.1,
+            max_value=500.0,
+            value=1.0,
+            step=0.1,
+            key="forecast_fs",
+        )
+    )
+    forecast_file = st.file_uploader(
+        "CSV nuevo para pronóstico",
+        type=["csv"],
+        key="forecast_file",
+    )
+    if st.button("Ejecutar pronóstico con modelo guardado", key="btn_forecast_saved"):
+        if forecast_file is None:
+            st.error("Sube un CSV para pronóstico.")
+        else:
+            try:
+                artifact = load_model_artifact(model_path)
+                forecast_df = read_csv(forecast_file)
+                forecast_df["fs"] = float(forecast_fs)
+                out_df = forecast_with_saved_model(
+                    model=artifact["model"],
+                    df=forecast_df,
+                    signal_columns=list(artifact.get("signal_columns", [])),
+                    time_column=str(artifact.get("time_column", "t")),
+                    window_size_samples=int(artifact.get("window_size_samples", 5)),
+                    stride_samples=int(artifact.get("stride_samples", 1)),
+                    threshold=float(artifact.get("detection_threshold", 0.35)),
+                )
+                st.dataframe(out_df, width="stretch")
+                st.download_button(
+                    "Descargar pronóstico CSV",
+                    data=out_df.to_csv(index=False).encode("utf-8"),
+                    file_name="pronostico_modelo_guardado.csv",
+                    mime="text/csv",
+                )
+            except Exception as exc:
+                st.error(f"No se pudo ejecutar pronóstico: {exc}")
 
 if train_result is not None:
     st.metric("Accuracy", f"{train_result['accuracy']:.4f}")
