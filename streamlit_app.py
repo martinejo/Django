@@ -1481,6 +1481,16 @@ if train_result is not None:
 
         if len(pred_times) > 0 and len(signal_cols) > 0:
             use_minutes = True
+            sampling_hz = float(train_result.get("sampling_frequency_hz", dataset_fs))
+            window_size_samples_local = int(
+                train_result.get("window_size_samples", train_result.get("window_size", 5))
+            )
+            detection_end_raw = None
+            if len(alarm_times) > 0:
+                detection_end_raw = float(alarm_times[0])
+            elif selected_case.get("first_alarm_time") is not None:
+                detection_end_raw = float(selected_case["first_alarm_time"])
+
             if use_minutes:
                 x_pred = pred_times / 60.0
                 x_alarm = alarm_times / 60.0 if len(alarm_times) else np.array([])
@@ -1549,6 +1559,19 @@ if train_result is not None:
                 if ev_left < ev_right:
                     event_span_df = pd.DataFrame([{"x": ev_left, "x2": ev_right}])
 
+            detection_span_df = pd.DataFrame(columns=["x", "x2"])
+            if detection_end_raw is not None:
+                window_seconds = window_size_samples_local / max(sampling_hz, 1e-6)
+                window_x = window_seconds / 60.0 if use_minutes else window_seconds
+                detection_end_x = (
+                    float(detection_end_raw) / 60.0 if use_minutes else float(detection_end_raw)
+                )
+                detection_start_x = detection_end_x - float(window_x)
+                det_left = max(x_min, detection_start_x)
+                det_right = min(x_max, detection_end_x)
+                if det_left < det_right:
+                    detection_span_df = pd.DataFrame([{"x": det_left, "x2": det_right}])
+
             alarm_df = pd.DataFrame({"x": x_alarm, "y": threshold})
             if not alarm_df.empty:
                 alarm_df = alarm_df[(alarm_df["x"] >= x_min) & (alarm_df["x"] <= x_max)]
@@ -1572,13 +1595,28 @@ if train_result is not None:
                 x=alt.X("x:Q", scale=alt.Scale(domain=[x_min, x_max]), axis=None),
                 x2="x2:Q",
             )
+            detection_rect = alt.Chart(detection_span_df).mark_rect(
+                color="#22c55e", opacity=0.18
+            ).encode(
+                x=alt.X("x:Q", scale=alt.Scale(domain=[x_min, x_max]), axis=None),
+                x2="x2:Q",
+            )
             alarm_lines = alt.Chart(alarm_df).mark_rule(color="#22c55e", opacity=0.28).encode(x="x:Q")
             alarm_points = alt.Chart(alarm_df).mark_point(
                 color="#22c55e", size=95, shape="triangle-up", filled=True
             ).encode(x="x:Q", y="y:Q")
             prob_chart = (
-                event_rect + prob_area + prob_line + prob_points + threshold_rule + alarm_lines + alarm_points
-            ).properties(height=300, title="Streaming: probabilidad y alarmas").resolve_scale(x="shared")
+                event_rect
+                + detection_rect
+                + prob_area
+                + prob_line
+                + prob_points
+                + threshold_rule
+                + alarm_lines
+                + alarm_points
+            ).properties(height=300, title="Streaming: probabilidad y alarmas").resolve_scale(
+                x="shared"
+            )
             st.altair_chart(prob_chart, use_container_width=True)
 
             metrics_lines = []
@@ -1624,7 +1662,13 @@ if train_result is not None:
                 x=alt.X("x:Q", scale=alt.Scale(domain=[x_min, x_max]), axis=None),
                 x2="x2:Q",
             )
-            signal_chart = (signal_event_rect + signal_line).properties(
+            signal_detection_rect = alt.Chart(detection_span_df).mark_rect(
+                color="#22c55e", opacity=0.18
+            ).encode(
+                x=alt.X("x:Q", scale=alt.Scale(domain=[x_min, x_max]), axis=None),
+                x2="x2:Q",
+            )
+            signal_chart = (signal_event_rect + signal_detection_rect + signal_line).properties(
                 height=320, title="Señales del paciente (inspección visual)"
             ).resolve_scale(x="shared")
             st.altair_chart(signal_chart, use_container_width=True)
