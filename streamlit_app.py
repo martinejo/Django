@@ -1225,6 +1225,15 @@ if (
     and isinstance(saved_forecast_df, pd.DataFrame)
     and saved_forecast_time_column in saved_forecast_df.columns
 ):
+    st.subheader("Tabla de pronóstico (persistente)")
+    st.dataframe(saved_forecast_table, width="stretch")
+    st.download_button(
+        "Descargar pronóstico CSV",
+        data=saved_forecast_table.to_csv(index=False).encode("utf-8"),
+        file_name="pronostico_modelo_guardado.csv",
+        mime="text/csv",
+        key="btn_download_saved_forecast_persistent",
+    )
     st.subheader("Visualización final del pronóstico")
     view_rows = saved_forecast_table.copy()
     patient_opts = view_rows["patient_id"].tolist()
