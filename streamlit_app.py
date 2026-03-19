@@ -435,6 +435,32 @@ if st.button("Entrenar todos los modelos"):
             f"transcurrido {elapsed_total:.1f}s"
         )
         push_log(f"Inicia entrenamiento de {model_name}.")
+        progress_state = {"last_bucket": -1}
+
+        def on_model_progress(fraction: float, detail: str):
+            frac = min(1.0, max(0.0, float(fraction)))
+            done_models = (idx - 1) + frac
+            overall_frac = done_models / len(model_keys)
+            elapsed_local = time.perf_counter() - global_start
+            avg_per_model = elapsed_local / max(done_models, 1e-6)
+            remaining_models = len(model_keys) - done_models
+            eta_local = avg_per_model * max(remaining_models, 0.0)
+            status_placeholder.info(
+                f"Entrenando {model_name} ({idx}/{len(model_keys)}) · {detail} · "
+                f"transcurrido {elapsed_local:.1f}s · ETA {eta_local:.1f}s"
+            )
+            progress.progress(
+                overall_frac,
+                text=(
+                    f"Completado {done_models:.1f}/{len(model_keys)} · "
+                    f"transcurrido {elapsed_local:.1f}s · ETA {eta_local:.1f}s"
+                ),
+            )
+            bucket = int(frac * 10)
+            if bucket > progress_state["last_bucket"]:
+                progress_state["last_bucket"] = bucket
+                push_log(f"{model_name}: {detail}.")
+
         try:
             result = train_and_evaluate(
                 df=data,
@@ -447,6 +473,7 @@ if st.button("Entrenar todos los modelos"):
                 detection_threshold=float(detection_threshold),
                 alarm_min_consecutive=int(alarm_min_consecutive),
                 alarm_refractory=int(alarm_refractory),
+                progress_callback=on_model_progress,
             )
             all_results[key] = result
             metrics = result.get("patient_level_metrics", {})

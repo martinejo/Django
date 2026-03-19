@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from importlib import import_module
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 import pandas as pd
@@ -23,6 +23,40 @@ def build_model(model_key: str, user_params: dict[str, Any] | None = None):
     params = merge_hyperparameters(model_key, user_params)
     model_class = _load_class(spec.sklearn_class)
     return model_class(**params)
+
+
+def _fit_model_with_progress(
+    model,
+    model_key: str,
+    x_train: np.ndarray,
+    y_train: np.ndarray,
+    progress_callback: Callable[[float, str], None] | None = None,
+):
+    """Ajusta el modelo con callback de progreso cuando es posible."""
+    if progress_callback is None:
+        model.fit(x_train, y_train)
+        return
+
+    if model_key == "gradient_boosting" and hasattr(model, "n_estimators"):
+        total_estimators = max(1, int(getattr(model, "n_estimators", 100)))
+        chunk = max(5, min(25, total_estimators // 10 if total_estimators >= 10 else 1))
+        try:
+            model.set_params(warm_start=True)
+        except Exception:
+            model.fit(x_train, y_train)
+            progress_callback(1.0, "entrenamiento completado")
+            return
+
+        done = 0
+        while done < total_estimators:
+            done = min(total_estimators, done + chunk)
+            model.set_params(n_estimators=done)
+            model.fit(x_train, y_train)
+            progress_callback(done / total_estimators, f"árboles {done}/{total_estimators}")
+        return
+
+    model.fit(x_train, y_train)
+    progress_callback(1.0, "entrenamiento completado")
 
 
 def read_csv(file_obj):
@@ -223,6 +257,7 @@ def train_and_evaluate(
     alarm_min_consecutive: int = 2,
     alarm_refractory: int = 10,
     stride: int = 1,
+    progress_callback: Callable[[float, str], None] | None = None,
 ):
     """Entrena un modelo por ventanas y devuelve métricas de clasificación."""
     from sklearn.metrics import accuracy_score, classification_report
@@ -273,7 +308,13 @@ def train_and_evaluate(
         stride=stride,
     )
     model = build_model(model_key, hyperparams)
-    model.fit(x_train, y_train)
+    _fit_model_with_progress(
+        model=model,
+        model_key=model_key,
+        x_train=x_train,
+        y_train=y_train,
+        progress_callback=progress_callback,
+    )
 
     y_pred = model.predict(x_test)
     if hasattr(model, "predict_proba"):
