@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 from collections import deque
 from pathlib import Path
 import time
@@ -409,10 +410,40 @@ if len(data) > 400_000:
         "`stride_muestras` igual o mayor que `fs`."
     )
 
+st.subheader("Hiperparámetros por modelo")
+hyperparams_inputs: dict[str, str] = {}
+for key, spec in MODEL_REGISTRY.items():
+    with st.expander(f"{spec.display_name}", expanded=False):
+        text_value = st.text_area(
+            f"Hiperparámetros ({spec.display_name}) [dict Python]",
+            value=st.session_state.get(f"hyperparams_text_{key}", str(spec.defaults)),
+            key=f"hyperparams_text_{key}",
+            height=140,
+        )
+        hyperparams_inputs[key] = text_value
+
 if st.button("Entrenar todos los modelos"):
     all_results: dict[str, dict] = {}
     train_errors: dict[str, str] = {}
     model_keys = list(MODEL_REGISTRY.keys())
+    user_hyperparams: dict[str, dict] = {}
+    parse_errors: list[str] = []
+    for key in model_keys:
+        model_name = MODEL_REGISTRY[key].display_name
+        raw_text = hyperparams_inputs.get(key, "").strip()
+        try:
+            parsed = ast.literal_eval(raw_text)
+            if not isinstance(parsed, dict):
+                raise ValueError("Debe ser un diccionario Python.")
+            user_hyperparams[key] = parsed
+        except Exception as exc:
+            parse_errors.append(f"{model_name}: {exc}")
+
+    if parse_errors:
+        st.error("Hiperparámetros inválidos en uno o más modelos:")
+        st.code("\n".join(parse_errors))
+        st.stop()
+
     progress = st.progress(0.0)
     status_placeholder = st.empty()
     log_placeholder = st.empty()
@@ -466,7 +497,7 @@ if st.button("Entrenar todos los modelos"):
                 df=data,
                 target_column=target_col,
                 model_key=key,
-                hyperparams=dict(MODEL_REGISTRY[key].defaults),
+                hyperparams=user_hyperparams.get(key, dict(MODEL_REGISTRY[key].defaults)),
                 window_size=int(window_size),
                 prediction_horizon=int(prediction_horizon),
                 stride=int(stride_samples),
