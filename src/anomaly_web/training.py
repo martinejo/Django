@@ -80,6 +80,13 @@ def _resolve_time_column(df, time_column: str | None) -> str:
     return time_column
 
 
+def _time_to_seconds_factor(time_column: str) -> float:
+    """Factor para convertir la unidad temporal del dataset a segundos."""
+    if time_column == "minute":
+        return 60.0
+    return 1.0
+
+
 def _patient_window_arrays(
     group_sorted: pd.DataFrame,
     signal_columns: list[str],
@@ -257,6 +264,7 @@ def train_and_evaluate(
     alarm_min_consecutive: int = 2,
     alarm_refractory: int = 10,
     stride: int = 1,
+    sampling_frequency_hz: float = 1.0,
     progress_callback: Callable[[float, str], None] | None = None,
 ):
     """Entrena un modelo por ventanas y devuelve métricas de clasificación."""
@@ -315,6 +323,7 @@ def train_and_evaluate(
         y_train=y_train,
         progress_callback=progress_callback,
     )
+    time_factor = _time_to_seconds_factor(time_column)
 
     y_pred = model.predict(x_test)
     if hasattr(model, "predict_proba"):
@@ -332,10 +341,10 @@ def train_and_evaluate(
 
     for patient_id in test_patient_ids:
         patient_group = test_df[test_df["patient_id"] == patient_id].sort_values(time_column)
-        event_times = patient_group.loc[patient_group[target_column] == 1, time_column].to_numpy(dtype=int)
+        event_times = patient_group.loc[patient_group[target_column] == 1, time_column].to_numpy(dtype=float)
         has_event = len(event_times) > 0
-        event_start_time = int(event_times[0]) if has_event else None
-        event_end_time = int(event_times[-1]) if has_event else None
+        event_start_time = float(event_times[0]) if has_event else None
+        event_end_time = float(event_times[-1]) if has_event else None
 
         patient_windows = _patient_window_arrays(
             group_sorted=patient_group,
@@ -358,11 +367,11 @@ def train_and_evaluate(
         alarm_min_consecutive = max(1, int(alarm_min_consecutive))
         alarm_refractory = max(0, int(alarm_refractory))
 
-        alarm_times: list[int] = []
+        alarm_times: list[float] = []
         consecutive = 0
-        last_alarm_t = -10**9
+        last_alarm_t = float(-10**9)
         for i, t_curr in enumerate(patient_window_end_time):
-            t_curr = int(t_curr)
+            t_curr = float(t_curr)
             if t_curr - last_alarm_t < alarm_refractory:
                 consecutive = 0
                 continue
@@ -377,14 +386,14 @@ def train_and_evaluate(
                 last_alarm_t = t_curr
                 consecutive = 0
 
-        first_alarm_time = int(alarm_times[0]) if len(alarm_times) > 0 else None
+        first_alarm_time = float(alarm_times[0]) if len(alarm_times) > 0 else None
         lead_time_seconds = None
         false_alarm_count = 0
 
         if has_event:
-            alarms_np = np.asarray(alarm_times, dtype=int)
+            alarms_np = np.asarray(alarm_times, dtype=float)
             if first_alarm_time is not None:
-                lead_time_seconds = int(event_start_time - first_alarm_time)
+                lead_time_seconds = float((event_start_time - first_alarm_time) * time_factor)
             if len(alarms_np) > 0:
                 valid = (alarms_np < event_start_time) | (
                     (alarms_np >= event_start_time) & (alarms_np <= event_end_time)
@@ -407,17 +416,20 @@ def train_and_evaluate(
 
         event_case_timelines[str(patient_id)] = [
             {
-                "time": int(t),
+                "time": float(t),
                 "pred_prob": float(prob),
                 "pred_positive": int(prob >= detection_threshold),
-                "true_event": int(has_event and event_start_time <= int(t) <= event_end_time),
+                "true_event": int(
+                    has_event and event_start_time is not None and event_end_time is not None
+                    and event_start_time <= float(t) <= event_end_time
+                ),
             }
             for t, prob in zip(patient_window_end_time, patient_prob)
         ]
         test_patient_payloads[str(patient_id)] = {
-            "pred_times": [int(t) for t in patient_window_end_time.tolist()],
+            "pred_times": [float(t) for t in patient_window_end_time.tolist()],
             "pred_proba": [float(p) for p in patient_prob.tolist()],
-            "alarm_times": [int(t) for t in alarm_times],
+            "alarm_times": [float(t) for t in alarm_times],
             "event_start_time": event_start_time,
             "event_end_time": event_end_time,
         }
@@ -432,16 +444,16 @@ def train_and_evaluate(
     ]
     patients_detected = len(detected_event_cases)
     lead_times_seconds = [
-        int(case["lead_time_seconds"])
+        float(case["lead_time_seconds"])
         for case in detected_event_cases
         if case["lead_time_seconds"] is not None
     ]
     early_detected_event_cases = [
         case
         for case in detected_event_cases
-        if case["lead_time_seconds"] is not None and int(case["lead_time_seconds"]) > 0
+        if case["lead_time_seconds"] is not None and float(case["lead_time_seconds"]) > 0
     ]
-    early_lead_times_seconds = [int(case["lead_time_seconds"]) for case in early_detected_event_cases]
+    early_lead_times_seconds = [float(case["lead_time_seconds"]) for case in early_detected_event_cases]
     false_alarm_counts_no_event = [
         int(case["false_alarm_count"])
         for case in event_case_summaries
@@ -473,8 +485,12 @@ def train_and_evaluate(
         "patients_detected_pre_event": int(len(early_detected_event_cases)),
         "sensitivity_by_patient": sensitivity_by_patient,
         "expected_prediction_horizon": int(prediction_horizon),
-        "lead_times_seconds": [int(v) for v in lead_times_seconds],
-        "early_lead_times_seconds": [int(v) for v in early_lead_times_seconds],
+        "expected_prediction_horizon_samples": int(prediction_horizon),
+        "expected_prediction_horizon_seconds": float(
+            prediction_horizon / max(float(sampling_frequency_hz), 1e-6)
+        ),
+        "lead_times_seconds": [float(v) for v in lead_times_seconds],
+        "early_lead_times_seconds": [float(v) for v in early_lead_times_seconds],
         "lead_time_mean_seconds": float(lead_times_np.mean()) if lead_times_np.size else None,
         "early_lead_time_mean_seconds": (
             float(early_lead_times_np.mean()) if early_lead_times_np.size else None
@@ -491,9 +507,9 @@ def train_and_evaluate(
         "patient_min_early_detection": (
             {
                 "patient_id": early_detected_event_cases[
-                    int(np.argmin(np.asarray(early_lead_times_seconds, dtype=np.int32)))
+                    int(np.argmin(np.asarray(early_lead_times_seconds, dtype=np.float32)))
                 ]["patient_id"],
-                "lead_time_seconds": int(min(early_lead_times_seconds)),
+                "lead_time_seconds": float(min(early_lead_times_seconds)),
             }
             if early_lead_times_seconds
             else None
@@ -501,9 +517,9 @@ def train_and_evaluate(
         "patient_max_early_detection": (
             {
                 "patient_id": early_detected_event_cases[
-                    int(np.argmax(np.asarray(early_lead_times_seconds, dtype=np.int32)))
+                    int(np.argmax(np.asarray(early_lead_times_seconds, dtype=np.float32)))
                 ]["patient_id"],
-                "lead_time_seconds": int(max(early_lead_times_seconds)),
+                "lead_time_seconds": float(max(early_lead_times_seconds)),
             }
             if early_lead_times_seconds
             else None
@@ -531,11 +547,18 @@ def train_and_evaluate(
         "event_case_summaries": event_case_summaries,
         "event_case_timelines": event_case_timelines,
         "window_size": int(window_size),
+        "window_size_samples": int(window_size),
+        "window_size_seconds": float(window_size / max(float(sampling_frequency_hz), 1e-6)),
         "prediction_horizon": int(prediction_horizon),
+        "prediction_horizon_samples": int(prediction_horizon),
+        "prediction_horizon_seconds": float(
+            prediction_horizon / max(float(sampling_frequency_hz), 1e-6)
+        ),
         "detection_threshold": detection_threshold,
         "alarm_min_consecutive": int(alarm_min_consecutive),
         "alarm_refractory": int(alarm_refractory),
         "stride": int(stride),
+        "sampling_frequency_hz": float(sampling_frequency_hz),
         "time_column": time_column,
         "test_patient_summaries": event_case_summaries,
         "test_patient_payloads": test_patient_payloads,

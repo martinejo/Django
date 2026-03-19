@@ -193,6 +193,19 @@ source = st.radio(
 )
 
 data = None
+input_fs_csv = None
+
+if source in {"Subir CSV", "Usar CSV de ejemplo"}:
+    input_fs_csv = float(
+        st.number_input(
+            "Frecuencia de muestreo del CSV (fs, muestras/segundo)",
+            min_value=0.1,
+            max_value=500.0,
+            value=1.0,
+            step=0.1,
+            help="Indica cuántas muestras por segundo contiene el CSV.",
+        )
+    )
 
 if source == "Simular":
     col1, col2, col3, col4 = st.columns(4)
@@ -241,6 +254,7 @@ elif source == "Subir CSV":
 
     try:
         data = read_csv(uploaded_file)
+        data["fs"] = float(input_fs_csv)
     except Exception as exc:
         st.error(f"No se pudo leer el CSV: {exc}")
         st.stop()
@@ -259,6 +273,7 @@ else:
         example_path = EXAMPLES_DIR / selected_file
         try:
             data = read_csv(example_path)
+            data["fs"] = float(input_fs_csv)
             st.success(f"CSV cargado: {selected_name}")
         except Exception as exc:
             st.error(f"No se pudo cargar el CSV de ejemplo: {exc}")
@@ -358,28 +373,28 @@ dataset_fs = 1
 if "fs" in data.columns:
     fs_values = pd.to_numeric(data["fs"], errors="coerce").dropna()
     if not fs_values.empty:
-        dataset_fs = max(1, int(fs_values.iloc[0]))
+        dataset_fs = max(0.1, float(fs_values.iloc[0]))
 default_stride = max(5, min(120, dataset_fs))
 
-window_size = st.number_input(
-    "tam_ventana (muestras por ventana)",
-    min_value=2,
-    max_value=120,
-    value=5,
-    step=1,
+window_size_seconds = st.number_input(
+    "tam_ventana (segundos por ventana)",
+    min_value=1.0,
+    max_value=600.0,
+    value=5.0,
+    step=1.0,
 )
-prediction_horizon = st.number_input(
-    "horizonte_prediccion (muestras de antelación)",
-    min_value=1,
-    max_value=120,
-    value=3,
-    step=1,
+prediction_horizon_seconds = st.number_input(
+    "horizonte_prediccion (segundos de antelación)",
+    min_value=0.5,
+    max_value=600.0,
+    value=3.0,
+    step=0.5,
 )
 stride_samples = st.number_input(
     "stride_muestras (salto entre ventanas)",
     min_value=1,
     max_value=120,
-    value=default_stride,
+    value=max(1, int(round(default_stride))),
     step=1,
 )
 detection_threshold = st.number_input(
@@ -409,6 +424,16 @@ if len(data) > 400_000:
         "Dataset grande detectado: para acelerar entrenamiento usa "
         "`stride_muestras` igual o mayor que `fs`."
     )
+
+window_size_samples = max(2, int(round(float(window_size_seconds) * float(dataset_fs))))
+prediction_horizon_samples = max(
+    1, int(round(float(prediction_horizon_seconds) * float(dataset_fs)))
+)
+st.caption(
+    f"Conversión actual con fs={dataset_fs:.3g} Hz: "
+    f"tam_ventana={window_size_samples} muestras, "
+    f"horizonte={prediction_horizon_samples} muestras."
+)
 
 st.subheader("Hiperparámetros por modelo")
 hyperparams_inputs: dict[str, str] = {}
@@ -498,12 +523,13 @@ if st.button("Entrenar todos los modelos"):
                 target_column=target_col,
                 model_key=key,
                 hyperparams=user_hyperparams.get(key, dict(MODEL_REGISTRY[key].defaults)),
-                window_size=int(window_size),
-                prediction_horizon=int(prediction_horizon),
+                window_size=int(window_size_samples),
+                prediction_horizon=int(prediction_horizon_samples),
                 stride=int(stride_samples),
                 detection_threshold=float(detection_threshold),
                 alarm_min_consecutive=int(alarm_min_consecutive),
                 alarm_refractory=int(alarm_refractory),
+                sampling_frequency_hz=float(dataset_fs),
                 progress_callback=on_model_progress,
             )
             all_results[key] = result
@@ -518,12 +544,12 @@ if st.button("Entrenar todos los modelos"):
                     "Detectados antes del evento": metrics.get("patients_detected_pre_event", 0),
                     "Tiempo medio detección temprana (s)": metrics.get("early_lead_time_mean_seconds"),
                     "Paciente menor tiempo detección": (
-                        f"{min_early.get('patient_id')} ({min_early.get('lead_time_seconds')}s)"
+                        f"{min_early.get('patient_id')} ({float(min_early.get('lead_time_seconds')):.2f}s)"
                         if min_early
                         else "N/A"
                     ),
                     "Paciente mayor tiempo detección": (
-                        f"{max_early.get('patient_id')} ({max_early.get('lead_time_seconds')}s)"
+                        f"{max_early.get('patient_id')} ({float(max_early.get('lead_time_seconds')):.2f}s)"
                         if max_early
                         else "N/A"
                     ),
@@ -608,12 +634,12 @@ if train_results_by_model:
                 "Detectados antes del evento": metrics.get("patients_detected_pre_event", 0),
                 "Tiempo medio detección temprana (s)": metrics.get("early_lead_time_mean_seconds"),
                 "Paciente menor tiempo detección": (
-                    f"{min_early.get('patient_id')} ({min_early.get('lead_time_seconds')}s)"
+                    f"{min_early.get('patient_id')} ({float(min_early.get('lead_time_seconds')):.2f}s)"
                     if min_early
                     else "N/A"
                 ),
                 "Paciente mayor tiempo detección": (
-                    f"{max_early.get('patient_id')} ({max_early.get('lead_time_seconds')}s)"
+                    f"{max_early.get('patient_id')} ({float(max_early.get('lead_time_seconds')):.2f}s)"
                     if max_early
                     else "N/A"
                 ),
@@ -666,8 +692,9 @@ if train_result is not None:
         )
 
         st.caption(
-            f"Tiempo esperado de predicción (horizonte): "
-            f"{patient_metrics.get('expected_prediction_horizon', prediction_horizon)}"
+            "Tiempo esperado de predicción (horizonte): "
+            f"{patient_metrics.get('expected_prediction_horizon_seconds', prediction_horizon_seconds):.2f}s "
+            f"({patient_metrics.get('expected_prediction_horizon_samples', prediction_horizon_samples)} muestras)"
         )
 
         lead_times = patient_metrics.get("lead_times_seconds", [])
@@ -712,7 +739,7 @@ if train_result is not None:
                 f"Paciente {case['patient_id']} | "
                 f"{'con evento' if case['has_event'] else 'sin evento'} | "
                 + (
-                    f"lead={case['lead_time_seconds']}s"
+                    f"lead={float(case['lead_time_seconds']):.2f}s"
                     if case["lead_time_seconds"] is not None
                     else "sin detección previa"
                 )
